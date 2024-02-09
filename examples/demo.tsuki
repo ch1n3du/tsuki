@@ -1,0 +1,27 @@
+//// Module containing core logic for Sierpinski renderer.
+
+type Grid {
+    Grid(cells: List(u8))
+}
+
+enum Status {
+    Ok,
+    Err,
+}
+
+struct Grid {
+    cells: List(u8)
+}
+
+/// Creates a new grid
+fn new(size: Option(u8)) -> Grid {
+    match size {
+        // Happy Path
+        Some(size_) -> size_,
+        None -> Grid(cells: List.new(size: 64))
+    }
+}
+
+fn draw_sierpinski() {
+    let cells: List(u8) = List.new(size: 64)
+}
