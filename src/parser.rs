@@ -1,34 +1,85 @@
 use chumsky::{
-    primitive::{choice, just, todo},
+    primitive::{choice, just},
     recursive::{recursive, Recursive},
     select, Parser,
 };
 
 use crate::{
     ast::{self, Span},
-    expr::{self, UntypedExpr},
+    expr::UntypedExpr,
     extra::ModuleExtra,
     lexer,
 };
 
 use super::{error::ParseError, token::Token};
 
-pub fn module_parser(
-    src: &str,
-    // kind
-) -> Result<(UntypedExpr, ModuleExtra), Vec<ParseError>> {
-    let lexer::LexInfo {
-        tokens,
-        module_extra,
-    } = lexer::run(src).unwrap();
+type RecursiveParser<'a> = Recursive<'a, Token, UntypedExpr, ParseError>;
 
-    let stream = chumsky::Stream::from_iter(ast::Span::create(tokens.len(), 1), tokens.into_iter());
+fn int_parser() -> impl Parser<Token, UntypedExpr, Error = ParseError> {
+    choice((just(Token::NewLineMinus), just(Token::Minus)))
+        .ignored()
+        .or_not()
+        .map(|v| v.is_some())
+        .then(select! { Token::Integer { value } => value })
+        .map_with_span(|(number_has_minus, value), location| {
+            let value = if number_has_minus {
+                format!("-{value}")
+            } else {
+                value
+            };
 
-    let expr = expression_parser().parse(stream);
-    match expr {
-        Ok(expr) => Ok((expr, module_extra)),
-        Err(parse_errors) => Err(parse_errors),
+            UntypedExpr::String { location, value }
+        })
+}
+
+fn float_parser() -> impl Parser<Token, UntypedExpr, Error = ParseError> {
+    select! { |location|
+        Token::Float { value } => {
+            UntypedExpr::Float { location, value, }
+        }
     }
+}
+
+fn bool_parser() -> impl Parser<Token, UntypedExpr, Error = ParseError> {
+    select! { |location|
+        Token::Boolean { value } => {
+            UntypedExpr::Boolean { location, value }
+        }
+    }
+}
+
+fn string_parser() -> impl Parser<Token, UntypedExpr, Error = ParseError> {
+    select! { |location|
+        Token::String { value } => {
+            UntypedExpr::String { location, value }
+        }
+    }
+}
+
+fn identifier_parser() -> impl Parser<Token, UntypedExpr, Error = ParseError> {
+    select! {
+        Token::UpName { name } => name,
+        Token::Name { name } => name,
+    }
+    .map_with_span(|name, location| UntypedExpr::Identifier { location, name })
+}
+
+// TODO Complete implementation
+// fn let_expr_parser<'a>(
+//     r: RecursiveParser<'a>,
+// ) -> impl Parser<Token, UntypedExpr, Error = ParseError> + 'a {
+//     // just(Token::Let)
+//     //     .ignore_then(identifier_parser())
+//     //     .then(just(Token::Colon))
+//     //     .ignore_then()
+// }
+
+/// Parses things that can be found at the start of a chained expression.
+fn chain_start<'a>(
+    _sequence_parser: RecursiveParser<'a>,
+    _expression_parser: RecursiveParser<'a>,
+) -> impl Parser<Token, UntypedExpr, Error = ParseError> + 'a {
+    choice((string_parser(), int_parser(), identifier_parser()))
 }
 
 // pub fn sequence_parser() -> impl Parser<Token, UntypedExpr, Error = ParseError> {
@@ -51,14 +102,17 @@ pub fn expression_parser<'a>(// sequence: Recursive<'_, Token, UntypedExpr, Pars
 
 pub fn pure_expression<'a>(
     // sequence: Recursive<'a, Token, UntypedExpr, ParseError>,
-    expression: Recursive<'a, Token, UntypedExpr, ParseError>,
+    _expression_parser: RecursiveParser<'a>,
 ) -> impl Parser<Token, UntypedExpr, Error = ParseError> + 'a {
-    let val = select! { |span|
-        Token::Integer { value, has_underscores } => {
-            UntypedExpr::Integer { location: span, value: value.replace("_", "") }
+    let literal_expr = select! { |span|
+        Token::Integer { value  } => {
+            UntypedExpr::Integer { location: span, value: value, }
+        },
+        Token::String { value } => {
+            UntypedExpr::String { location: span, value: value, }
         }
     }
-    .labelled("value");
+    .labelled("literal");
 
     // Unary Operand
     let unary_op = choice((
@@ -70,7 +124,7 @@ pub fn pure_expression<'a>(
         .map_with_span(|op: ast::UnaryOp, span: Span| (op, span))
         .repeated()
         // TODO .then(chained(sequence, expression))
-        .then(val)
+        .then(literal_expr)
         .foldr(|(unary_op, span), value| UntypedExpr::UnaryOp {
             location: span.union(value.location()),
             op: unary_op,
@@ -134,7 +188,6 @@ pub fn pure_expression<'a>(
         })
         .boxed();
 
-    // Conjunction
     let or_op = just(Token::And).to(ast::BinaryOp::And);
     let or_expr = comparison
         .clone()
@@ -147,7 +200,6 @@ pub fn pure_expression<'a>(
         })
         .boxed();
 
-    // Disjunction
     let and_op = just(Token::Or).to(ast::BinaryOp::Or);
     let and_expr = or_expr
         .clone()
@@ -188,4 +240,31 @@ pub fn pure_expression<'a>(
         });
 
     pipeline_expr
+}
+
+pub fn module_parser(
+    src: &str,
+    // kind
+) -> Result<(UntypedExpr, ModuleExtra), Vec<ParseError>> {
+    let lexer::LexInfo {
+        tokens,
+        module_extra,
+    } = lexer::run(src).unwrap();
+
+    let stream = chumsky::Stream::from_iter(ast::Span::create(tokens.len(), 1), tokens.into_iter());
+
+    let expr = expression_parser().parse(stream);
+    match expr {
+        Ok(expr) => Ok((expr, module_extra)),
+        Err(parse_errors) => Err(parse_errors),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn can_parse(src: &str) -> (UntypedExpr, ModuleExtra) {
+        module_parser(src).unwrap()
+    }
 }
