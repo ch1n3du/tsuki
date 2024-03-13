@@ -10,6 +10,10 @@ pub enum UntypedExpr {
         location: Span,
         value: String,
     },
+    Boolean {
+        location: Span,
+        value: bool,
+    },
     String {
         location: Span,
         value: String,
@@ -46,6 +50,7 @@ impl UntypedExpr {
         match self {
             Self::Integer { location, .. }
             | Self::Float { location, .. }
+            | Self::Boolean { location, .. }
             | Self::String { location, .. }
             | Self::Identifier { location, .. }
             | Self::UnaryOp { location, .. }

@@ -88,10 +88,7 @@ pub fn run(src: &str) -> Result<LexInfo, Vec<ParseError>> {
 }
 
 pub fn lexer() -> impl Parser<char, Vec<(Token, Span)>, Error = ParseError> {
-    let base10 = text::int(10).map(|value| Token::Integer {
-        value,
-        has_underscores: false,
-    });
+    let base10 = text::int(10).map(|value| Token::Integer { value });
 
     let base10_underscore = one_of("0123456789")
         .repeated()
@@ -101,10 +98,7 @@ pub fn lexer() -> impl Parser<char, Vec<(Token, Span)>, Error = ParseError> {
         .at_least(2)
         .flatten()
         .collect::<String>()
-        .map(|value| Token::Integer {
-            value,
-            has_underscores: true,
-        });
+        .map(|value| Token::Integer { value });
 
     let int = choice((base10_underscore, base10));
 
@@ -121,7 +115,7 @@ pub fn lexer() -> impl Parser<char, Vec<(Token, Span)>, Error = ParseError> {
             just('>').to(Token::GreaterThan),
         )),
         just('+').to(Token::Plus),
-        just("->").to(Token::Arrow),
+        just("->").to(Token::RightArrow),
         just('-').to(Token::Minus),
         just('*').to(Token::Multiply),
         just('/').to(Token::Divide),
@@ -176,7 +170,24 @@ pub fn lexer() -> impl Parser<char, Vec<(Token, Span)>, Error = ParseError> {
         "todo" => Token::Todo,
         "type" => Token::Type,
         "match" => Token::Match,
-        _ => Token::Identifier { name: s },
+        _ => {
+            if s.chars().next().map_or(false, |c| c.is_uppercase()) {
+                Token::UpName {
+                    // TODO: do not allow _ in upname
+                    name: s,
+                }
+            } else if s.starts_with('_') {
+                Token::DiscardName {
+                    // TODO: do not allow uppercase letters in discard name
+                    name: s,
+                }
+            } else {
+                Token::Name {
+                    // TODO: do not allow uppercase letters in name
+                    name: s,
+                }
+            }
+        }
     });
 
     fn comment_parser(token: Token) -> impl Parser<char, (Token, Span), Error = ParseError> {

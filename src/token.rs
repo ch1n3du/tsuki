@@ -8,20 +8,37 @@ pub struct Location {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Token {
-    // Literals
-    Identifier {
+    /// A lowercase name used for variables and modules.
+    ///
+    /// Examples: `ordinal`, `counter`, etc.
+    Name {
         name: String,
     },
+    /// An uppercase name used for naming types.
+    ///
+    /// Examples: `Int`, `String`, `List(U8)`, etc.
+    UpName {
+        name: String,
+    },
+    /// A name that starts with an underscore, used to signify values
+    /// that can be discarded.
+    ///
+    /// Examples: `_result`, `_`, etc.
+    DiscardName {
+        name: String,
+    },
+    // Literals
     Integer {
         value: String,
-        has_underscores: bool,
     },
     Float {
         value: String,
-        has_underscores: bool,
     },
     String {
         value: String,
+    },
+    Boolean {
+        value: bool,
     },
 
     // Integer/Float Operands
@@ -42,13 +59,13 @@ pub enum Token {
     LessThanOrEqual,    // <=
 
     // Other Punctuation
-    Arrow, // ->
-    Not,   // not
-    Or,    // or
-    And,   // and
-    Colon, // :
-    Comma, // ,
-    Dot,   // .
+    RightArrow, // ->
+    Not,        // not
+    Or,         // or
+    And,        // and
+    Colon,      // :
+    Comma,      // ,
+    Dot,        // .
 
     // Groupings
     NewLineLeftParen, // '↳('
