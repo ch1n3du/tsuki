@@ -4,6 +4,7 @@ pub mod expr;
 mod extra;
 pub mod lexer;
 pub mod parser;
+mod pattern;
 mod token;
 mod type_annotation;
 mod utils;

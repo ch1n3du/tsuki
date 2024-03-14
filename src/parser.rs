@@ -9,6 +9,7 @@ use crate::{
     expr::UntypedExpr,
     extra::ModuleExtra,
     lexer,
+    type_annotation::type_annotation_parser,
 };
 
 use super::{error::ParseError, token::Token};
@@ -64,44 +65,69 @@ fn identifier_parser() -> impl Parser<Token, UntypedExpr, Error = ParseError> {
     .map_with_span(|name, location| UntypedExpr::Identifier { location, name })
 }
 
+// TODO: Remove this massive hack
+fn raw_identifier_parser() -> impl Parser<Token, String, Error = ParseError> {
+    select! {
+        Token::UpName { name } => name,
+        Token::Name { name } => name,
+    }
+}
+
 // TODO Complete implementation
-// fn let_expr_parser<'a>(
-//     r: RecursiveParser<'a>,
-// ) -> impl Parser<Token, UntypedExpr, Error = ParseError> + 'a {
-//     // just(Token::Let)
-//     //     .ignore_then(identifier_parser())
-//     //     .then(just(Token::Colon))
-//     //     .ignore_then()
-// }
+fn let_expr_parser<'a>(
+    expression_parser: RecursiveParser<'a>,
+) -> impl Parser<Token, UntypedExpr, Error = ParseError> + 'a {
+    just(Token::Let)
+        // TODO: Implement Parsing for patterns
+        .ignore_then(raw_identifier_parser())
+        .then(
+            just(Token::Colon)
+                .ignore_then(type_annotation_parser())
+                .or_not(),
+        )
+        .then_ignore(just(Token::Equal))
+        .then(expression_parser.clone())
+        .validate(
+            move |((identifier, type_annotation), value), location, emit| {
+                if let UntypedExpr::Assignment { .. } = value {
+                    emit(ParseError::invalid_assignment_right_hand_side(location))
+                }
+
+                UntypedExpr::Assignment {
+                    location,
+                    value: Box::new(value),
+                    // TODO: Implement patterns
+                    pattern: identifier,
+                    type_annotation,
+                }
+            },
+        )
+}
 
 /// Parses things that can be found at the start of a chained expression.
 fn chain_start<'a>(
-    _sequence_parser: RecursiveParser<'a>,
+    _expression_sequence_parser: RecursiveParser<'a>,
     _expression_parser: RecursiveParser<'a>,
 ) -> impl Parser<Token, UntypedExpr, Error = ParseError> + 'a {
+    // TODO add more subparsers
     choice((string_parser(), int_parser(), identifier_parser()))
 }
 
-// pub fn sequence_parser() -> impl Parser<Token, UntypedExpr, Error = ParseError> {
-//     recursive(|sequence| {
-//         expression_parser(sequence.clone())
-//             .then(sequence.repeated())
-//             .foldl(|current, next| current.append_in_sequence(next))
-//     })
-// }
-
-pub fn expression_parser<'a>(// sequence: Recursive<'_, Token, UntypedExpr, ParseError>,
+/// Parses a single expression.
+pub fn expression_parser<'a>(
+    expression_sequence_parser: RecursiveParser<'a>,
 ) -> impl Parser<Token, UntypedExpr, Error = ParseError> + 'a {
-    recursive(|expression| {
+    recursive(|expression_parser| {
         choice((
             // fail_todo_trace(expression.clone(), sequence.clone()),
-            pure_expression(expression),
+            pure_expression_parser(expression_sequence_parser, expression_parser),
         ))
     })
 }
 
-pub fn pure_expression<'a>(
-    // sequence: Recursive<'a, Token, UntypedExpr, ParseError>,
+/// Helper functions that calls the expression_parser recursively
+pub fn pure_expression_parser<'a>(
+    _expression_sequence_parser: RecursiveParser<'a>,
     _expression_parser: RecursiveParser<'a>,
 ) -> impl Parser<Token, UntypedExpr, Error = ParseError> + 'a {
     let literal_expr = select! { |span|
@@ -182,7 +208,7 @@ pub fn pure_expression<'a>(
         .then(comparison_op.then(sum).repeated())
         .foldl(|left_expr, (op, right_expr)| UntypedExpr::BinaryOp {
             location: left_expr.location().union(right_expr.location()),
-            op: op,
+            op,
             left: Box::new(left_expr),
             right: Box::new(right_expr),
         })
@@ -194,7 +220,7 @@ pub fn pure_expression<'a>(
         .then(or_op.then(comparison).repeated())
         .foldl(|left_expr, (op, right_expr)| UntypedExpr::BinaryOp {
             location: left_expr.location().union(right_expr.location()),
-            op: op,
+            op,
             left: Box::new(left_expr),
             right: Box::new(right_expr),
         })
@@ -240,6 +266,20 @@ pub fn pure_expression<'a>(
         });
 
     pipeline_expr
+}
+
+/// Parses a sequence of expressions into an `UntypedExpr::Sequence {..}`
+pub fn expression_sequence_parser() -> impl Parser<Token, UntypedExpr, Error = ParseError> {
+    recursive(|expression_sequence_parser| {
+        // Parse an expression
+        expression_parser(expression_sequence_parser.clone())
+            // Recursively call the expression sequence parser to
+            // parse the sequence of expressions one at a time.
+            .then(expression_sequence_parser.repeated())
+            .foldl(|current_expression, next_expression| {
+                current_expression.append_in_sequence(next_expression)
+            })
+    })
 }
 
 pub fn module_parser(
