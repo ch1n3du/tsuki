@@ -4,6 +4,7 @@ use chumsky::{
     recovery::skip_then_retry_until,
     text, Error, Parser,
 };
+use ordinal::Ordinal;
 
 use crate::{ast::Span, error::ParseError, extra::ModuleExtra, token::Token};
 
@@ -102,6 +103,29 @@ pub fn lexer() -> impl Parser<char, Vec<(Token, Span)>, Error = ParseError> {
 
     let int = choice((base10_underscore, base10));
 
+    let ordinal = text::int(10)
+        .then_with(|index: String| {
+            choice((just("st"), just("nd"), just("rd"), just("th")))
+                .map(move |suffix| (index.to_string(), suffix))
+        })
+        .validate(|(index, suffix), span, emit| match index.parse() {
+            Err { .. } => {
+                emit(ParseError::invalid_tuple_index(span, index, None));
+                Token::Ordinal { index: 0 }
+            }
+            Ok(index) => {
+                let expected_suffix = Ordinal::<u32>(index).suffix();
+                if expected_suffix != suffix {
+                    emit(ParseError::invalid_tuple_index(
+                        span,
+                        index.to_string(),
+                        Some(expected_suffix.to_string()),
+                    ))
+                }
+                Token::Ordinal { index }
+            }
+        });
+
     let op = choice((
         just("==").to(Token::EqualEqual),
         just('=').to(Token::Equal),
@@ -123,7 +147,8 @@ pub fn lexer() -> impl Parser<char, Vec<(Token, Span)>, Error = ParseError> {
         just(',').to(Token::Comma),
         just(':').to(Token::Colon),
         just('%').to(Token::Modulo),
-        // just('#').to(Token::Hash),
+        just('?').to(Token::Question),
+        just('#').to(Token::Hash),
     ));
 
     let grouping = choice((
@@ -224,7 +249,7 @@ pub fn lexer() -> impl Parser<char, Vec<(Token, Span)>, Error = ParseError> {
         comment_parser(Token::ModuleComment),
         comment_parser(Token::DocComment),
         comment_parser(Token::Comment),
-        choice((keyword, int, op, newlines, grouping, string))
+        choice((ordinal, keyword, int, op, newlines, grouping, string))
             .or(any().map(Token::Error).validate(|t, span, emit| {
                 emit(ParseError::expected_input_found(
                     span,

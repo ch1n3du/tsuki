@@ -1,13 +1,12 @@
+use crate::{ast::Span, error::ParseError, token::Token};
 use chumsky::{
     primitive::{choice, just},
     recursive::recursive,
     select, Parser,
 };
 
-use crate::{ast::Span, error::ParseError, token::Token};
-
 /// This type serves as the AST for type annotations
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeAnnotation {
     Constructor {
         location: Span,

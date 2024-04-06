@@ -1,4 +1,6 @@
-use crate::ast::Span;
+use crate::ast::{CallArg, Span};
+
+pub type UntypedPattern = Pattern<(), ()>;
 
 #[derive(Debug)]
 pub enum Pattern<Constructor, Type> {

@@ -1,10 +1,8 @@
-use std::collections::HashSet;
+use crate::{ast::Span, token::Token};
 
 use miette::Diagnostic;
-
-use crate::ast::Span;
-
-use super::token::Token;
+use owo_colors::{OwoColorize, Stream::Stdout};
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, Diagnostic, thiserror::Error)]
 #[error("{kind}\n")]
@@ -32,6 +30,17 @@ impl ParseError {
             while_parsing: None,
             expected_patterns: HashSet::new(),
             label: Some("invalid assignment right-hand side"),
+        }
+    }
+
+    pub fn invalid_tuple_index(span: Span, index: String, suffix: Option<String>) -> Self {
+        let hint = suffix.map(|suffix| format!("Did you mean '{index}{suffix}'?"));
+        Self {
+            kind: ErrorKind::InvalidTupleIndex { hint },
+            span,
+            while_parsing: None,
+            expected_patterns: HashSet::new(),
+            label: None,
         }
     }
 }
@@ -94,6 +103,13 @@ pub enum ErrorKind {
         ),
     )]
     UnfinishedAssignmentRightHandSide,
+
+    #[error("I discovered an invalid tuple index.")]
+    #[diagnostic()]
+    InvalidTupleIndex {
+        #[help]
+        hint: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Diagnostic, thiserror::Error)]

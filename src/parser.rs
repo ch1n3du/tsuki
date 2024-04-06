@@ -5,7 +5,8 @@ use chumsky::{
 };
 
 use crate::{
-    ast::{self, Span},
+    ast::{self, ParsedCallArg, Span},
+    call::call_parser,
     expr::UntypedExpr,
     extra::ModuleExtra,
     lexer,
@@ -14,7 +15,7 @@ use crate::{
 
 use super::{error::ParseError, token::Token};
 
-type RecursiveParser<'a> = Recursive<'a, Token, UntypedExpr, ParseError>;
+pub type RecursiveExpressionParser<'a> = Recursive<'a, Token, UntypedExpr, ParseError>;
 
 fn int_parser() -> impl Parser<Token, UntypedExpr, Error = ParseError> {
     choice((just(Token::NewLineMinus), just(Token::Minus)))
@@ -75,7 +76,7 @@ fn raw_identifier_parser() -> impl Parser<Token, String, Error = ParseError> {
 
 // TODO Complete implementation
 fn let_expr_parser<'a>(
-    expression_parser: RecursiveParser<'a>,
+    expression_parser: RecursiveExpressionParser<'a>,
 ) -> impl Parser<Token, UntypedExpr, Error = ParseError> + 'a {
     just(Token::Let)
         // TODO: Implement Parsing for patterns
@@ -104,10 +105,79 @@ fn let_expr_parser<'a>(
         )
 }
 
+// Helper type for parsing chained expressions
+#[derive(Debug)]
+pub enum Chain {
+    Call(Vec<ParsedCallArg>, Span),
+    FieldAccess(String, Span),
+    TupleIndex(usize, Span),
+}
+
+fn tuple_index_parser() -> impl Parser<Token, Chain, Error = ParseError> {
+    just(Token::Dot)
+        .ignore_then(select! {
+            Token::Ordinal { index } => index,
+        })
+        .validate(|tuple_index, location, emit| {
+            if tuple_index < 1 {
+                emit(ParseError::invalid_tuple_index(
+                    location,
+                    tuple_index.to_string(),
+                    None,
+                ));
+                Chain::TupleIndex(0, location)
+            } else {
+                Chain::TupleIndex(tuple_index as usize - 1, location)
+            }
+        })
+}
+
+fn field_access_parser() -> impl Parser<Token, Chain, Error = ParseError> {
+    just(Token::Dot)
+        .ignore_then(select! {
+            Token::Name { name } => name,
+        })
+        .map_with_span(Chain::FieldAccess)
+}
+
+fn constructor_parser() -> impl Parser<Token, UntypedExpr, Error = ParseError> {
+    select! {Token::Name { name } => name}
+        .map_with_span(|module, span| (module, span))
+        .then_ignore(just(Token::Dot))
+        .then(select! {Token::UpName { name } => name})
+        .map_with_span(|((module, m_span), name), span| UntypedExpr::FieldAccess {
+            location: span,
+            label: name,
+            container: Box::new(UntypedExpr::Identifier {
+                location: m_span,
+                name: module,
+            }),
+        })
+}
+
+fn chain_parser<'a>(
+    expression_sequence_parser: RecursiveExpressionParser<'a>,
+    expression_parser: RecursiveExpressionParser<'a>,
+) -> impl Parser<Token, UntypedExpr, Error = ParseError> + 'a {
+    let chain = choice((
+        tuple_index_parser(),
+        field_access_parser(),
+        call_parser(expression_parser.clone()),
+    ));
+
+    chain_start(expression_sequence_parser, expression_parser)
+        .then(chain.repeated())
+        .foldl(|current_expr, chain| match chain {
+            Chain::Call(args, location) => current_expr.call(args, location),
+            Chain::FieldAccess(label, location) => current_expr.field_access(label, location),
+            Chain::TupleIndex(index, location) => current_expr.tuple_index(index, location),
+        })
+}
+
 /// Parses things that can be found at the start of a chained expression.
 fn chain_start<'a>(
-    _expression_sequence_parser: RecursiveParser<'a>,
-    _expression_parser: RecursiveParser<'a>,
+    _expression_sequence_parser: RecursiveExpressionParser<'a>,
+    _expression_parser: RecursiveExpressionParser<'a>,
 ) -> impl Parser<Token, UntypedExpr, Error = ParseError> + 'a {
     // TODO add more subparsers
     choice((string_parser(), int_parser(), identifier_parser()))
@@ -115,7 +185,7 @@ fn chain_start<'a>(
 
 /// Parses a single expression.
 pub fn expression_parser<'a>(
-    expression_sequence_parser: RecursiveParser<'a>,
+    expression_sequence_parser: RecursiveExpressionParser<'a>,
 ) -> impl Parser<Token, UntypedExpr, Error = ParseError> + 'a {
     recursive(|expression_parser| {
         choice((
@@ -127,8 +197,8 @@ pub fn expression_parser<'a>(
 
 /// Helper functions that calls the expression_parser recursively
 pub fn pure_expression_parser<'a>(
-    _expression_sequence_parser: RecursiveParser<'a>,
-    _expression_parser: RecursiveParser<'a>,
+    _expression_sequence_parser: RecursiveExpressionParser<'a>,
+    _expression_parser: RecursiveExpressionParser<'a>,
 ) -> impl Parser<Token, UntypedExpr, Error = ParseError> + 'a {
     let literal_expr = select! { |span|
         Token::Integer { value  } => {
@@ -269,7 +339,7 @@ pub fn pure_expression_parser<'a>(
 }
 
 /// Parses a sequence of expressions into an `UntypedExpr::Sequence {..}`
-pub fn expression_sequence_parser() -> impl Parser<Token, UntypedExpr, Error = ParseError> {
+pub fn expression_sequence_parser<'a>() -> RecursiveExpressionParser<'a> {
     recursive(|expression_sequence_parser| {
         // Parse an expression
         expression_parser(expression_sequence_parser.clone())
@@ -293,7 +363,7 @@ pub fn module_parser(
 
     let stream = chumsky::Stream::from_iter(ast::Span::create(tokens.len(), 1), tokens.into_iter());
 
-    let expr = expression_parser().parse(stream);
+    let expr = expression_parser(expression_sequence_parser()).parse(stream);
     match expr {
         Ok(expr) => Ok((expr, module_extra)),
         Err(parse_errors) => Err(parse_errors),

@@ -1,21 +1,28 @@
 use crate::{
-    ast::{BinaryOp, Span, UnaryOp},
+    ast::{self, Argument, BinaryOp, CallArg, Span, UnaryOp},
     type_annotation::TypeAnnotation,
 };
 
-#[derive(Debug)]
+// Represent how a function was written so that we can format it back.
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum FunctionStyle {
+    Plain,
+    Capture,
+}
+
+#[derive(Debug, Clone)]
 pub enum UntypedExpr {
     Integer {
-        location: Span,
-        value: String,
-    },
-    Float {
         location: Span,
         value: String,
     },
     Boolean {
         location: Span,
         value: bool,
+    },
+    Float {
+        location: Span,
+        value: String,
     },
     String {
         location: Span,
@@ -28,74 +35,214 @@ pub enum UntypedExpr {
     UnaryOp {
         location: Span,
         op: UnaryOp,
-        value: Box<UntypedExpr>,
+        value: Box<Self>,
     },
     BinaryOp {
         location: Span,
         op: BinaryOp,
-        left: Box<UntypedExpr>,
-        right: Box<UntypedExpr>,
-    },
-    Assignment {
-        location: Span,
-        value: Box<UntypedExpr>,
-        // TODO: Implement patterns
-        pattern: String,
-        type_annotation: Option<TypeAnnotation>,
+        left: Box<Self>,
+        right: Box<Self>,
     },
     Sequence {
         location: Span,
-        expressions: Vec<UntypedExpr>,
+        expressions: Vec<Self>,
     },
     Pipeline {
-        expressions: Vec<UntypedExpr>,
+        expressions: Vec<Self>,
         one_liner: bool,
     },
-    // TODO: Variable assignment
-    // TODO: Functions and function calls
+    Assignment {
+        location: Span,
+        value: Box<Self>,
+        // TODO: Change to a `Pattern`
+        pattern: String,
+        type_annotation: Option<TypeAnnotation>,
+    },
+    FieldAccess {
+        location: Span,
+        label: String,
+        container: Box<Self>,
+    },
+    Tuple {
+        location: Span,
+        elements: Vec<Self>,
+    },
+    TupleIndex {
+        location: Span,
+        index: usize,
+        tuple: Box<Self>,
+    },
+    Function {
+        location: Span,
+        function_style: FunctionStyle,
+        arguments: Vec<Argument<()>>,
+        body: Box<Self>,
+        return_annotation: Option<TypeAnnotation>,
+    },
+    Call {
+        location: Span,
+        arguments: Vec<CallArg<UntypedExpr>>,
+        function: Box<Self>,
+    },
 }
 
-impl UntypedExpr {
-    /// Append two `UntypedExpr`s into an `UntypedExpr::Sequence {..}`
-    pub fn append_in_sequence(self, next_expression: UntypedExpr) -> UntypedExpr {
-        let location: Span = self.location().union(next_expression.location());
+pub const DEFAULT_TODO_STR: &str = "aiken::todo";
+pub const DEFAULT_ERROR_STR: &str = "aiken::error";
 
-        match (self, next_expression) {
+impl UntypedExpr {
+    // pub fn todo(reason: Option<Self>, location: Span) -> Self {
+    //     UntypedExpr::Trace {
+    //         location,
+    //         kind: TraceKind::Todo,
+    //         then: Box::new(UntypedExpr::ErrorTerm { location }),
+    //         text: Box::new(reason.unwrap_or_else(|| UntypedExpr::String {
+    //             location,
+    //             value: DEFAULT_TODO_STR.to_string(),
+    //         })),
+    //     }
+    // }
+
+    // pub fn fail(reason: Option<Self>, location: Span) -> Self {
+    //     if let Some(reason) = reason {
+    //         UntypedExpr::Trace {
+    //             location,
+    //             kind: TraceKind::Error,
+    //             then: Box::new(UntypedExpr::ErrorTerm { location }),
+    //             text: Box::new(reason),
+    //         }
+    //     } else {
+    //         UntypedExpr::ErrorTerm { location }
+    //     }
+    // }
+
+    pub fn tuple_index(self, index: usize, location: Span) -> Self {
+        UntypedExpr::TupleIndex {
+            location: self.location().union(location),
+            index,
+            tuple: Box::new(self),
+        }
+    }
+
+    pub fn field_access(self, label: String, location: Span) -> Self {
+        UntypedExpr::FieldAccess {
+            location: self.location().union(location),
+            label,
+            container: Box::new(self),
+        }
+    }
+
+    pub fn call(self, args: Vec<CallArg<Option<UntypedExpr>>>, location: Span) -> Self {
+        let mut holes = Vec::new();
+
+        let args = args
+            .into_iter()
+            .enumerate()
+            .map(|(index, a)| match a {
+                CallArg {
+                    value: Some(value),
+                    label,
+                    location,
+                } => CallArg {
+                    value,
+                    label,
+                    location,
+                },
+                CallArg {
+                    value: None,
+                    label,
+                    location,
+                } => {
+                    let name = format!("{}__{index}", ast::CAPTURE_VARIABLE);
+
+                    holes.push(ast::Argument {
+                        location: Span::empty(),
+                        annotation: None,
+                        doc: None,
+                        argument_name: ast::ArgumentName::Named {
+                            label: name.clone(),
+                            name,
+                            location: Span::empty(),
+                        },
+                        type_: (),
+                    });
+
+                    ast::CallArg {
+                        label,
+                        location,
+                        value: UntypedExpr::Identifier {
+                            location,
+                            name: format!("{}__{index}", ast::CAPTURE_VARIABLE),
+                        },
+                    }
+                }
+            })
+            .collect();
+
+        let call = UntypedExpr::Call {
+            location: self.location().union(location),
+            function: Box::new(self),
+            arguments: args,
+        };
+
+        // If some arguments are not supplied the return a closure that takes those as an
+        // argument
+        if holes.is_empty() {
+            call
+        } else {
+            UntypedExpr::Function {
+                location: call.location(),
+                function_style: FunctionStyle::Capture,
+                arguments: holes,
+                body: Box::new(call),
+                return_annotation: None,
+            }
+        }
+    }
+
+    pub fn append_in_sequence(self, next: Self) -> Self {
+        let location = Span {
+            start: self.location().start,
+            end: next.location().end,
+        };
+
+        match (self.clone(), next.clone()) {
             (
-                UntypedExpr::Sequence {
+                Self::Sequence {
                     expressions: mut current_expressions,
                     ..
                 },
-                UntypedExpr::Sequence {
+                Self::Sequence {
                     expressions: mut next_expressions,
                     ..
                 },
             ) => {
                 current_expressions.append(&mut next_expressions);
 
-                UntypedExpr::Sequence {
+                Self::Sequence {
                     location,
                     expressions: current_expressions,
                 }
             }
             (
-                non_sequence_expression,
-                UntypedExpr::Sequence {
+                _,
+                Self::Sequence {
                     expressions: mut next_expressions,
                     ..
                 },
             ) => {
-                let mut current_expressions = vec![non_sequence_expression];
+                let mut current_expressions = vec![self];
+
                 current_expressions.append(&mut next_expressions);
 
-                UntypedExpr::Sequence {
+                Self::Sequence {
                     location,
                     expressions: current_expressions,
                 }
             }
-            (non_sequence_expression_1, non_sequence_expression_2) => UntypedExpr::Sequence {
+
+            (_, _) => Self::Sequence {
                 location,
-                expressions: vec![non_sequence_expression_1, non_sequence_expression_2],
+                expressions: vec![self, next],
             },
         }
     }
@@ -110,6 +257,11 @@ impl UntypedExpr {
             | Self::UnaryOp { location, .. }
             | Self::BinaryOp { location, .. }
             | Self::Assignment { location, .. }
+            | Self::FieldAccess { location, .. }
+            | Self::Tuple { location, .. }
+            | Self::TupleIndex { location, .. }
+            | Self::Function { location, .. }
+            | Self::Call { location, .. }
             | Self::Sequence { location, .. } => *location,
             Self::Pipeline { expressions, .. } => expressions
                 .first()

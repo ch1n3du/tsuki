@@ -40,6 +40,9 @@ pub enum Token {
     Boolean {
         value: bool,
     },
+    Ordinal {
+        index: u32,
+    },
 
     // Integer/Float Operands
     Plus,         // +
@@ -77,6 +80,8 @@ pub enum Token {
     RightCurly,       // }
     NewLinePipe,      // '↳|>'
     Pipe,             // |>
+    Question,         // ?
+    Hash,             // #
 
     // Keywords
     Fn,
