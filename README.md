@@ -8,7 +8,7 @@ A rough sketch of language features
 
 - [ ] Literals
 - [ ] Variables
-- [ ] `if``/`else` statements
+- [ ] `if`/`else` statements
 - [ ] Functions
 - [ ] Records
 - [ ] Enums
