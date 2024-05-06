@@ -1,17 +1,20 @@
-//// Module containing core logic for Sierpinski renderer.
+module Sierpinski
+/// Module containing core logic for Sierpinski renderer.
 
 type Grid {
     Grid(cells: List(u8))
 }
 
-enum Status {
-    Ok,
-    Err,
+enum Result(value, reason) {
+    Ok(value),
+    Err(reason),
 }
 
 struct Grid {
     cells: List(u8)
 }
+fn new(size: Option(u8)) -> Grid;
+fn new(size: Option(u8)): Grid;
 
 /// Creates a new grid
 fn new(size: Option(u8)) -> Grid {

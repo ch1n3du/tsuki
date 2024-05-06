@@ -1,4 +1,4 @@
-use chumsky::Parser;
+use chumsky::{primitive::just, Parser};
 
 use crate::{ast, error::ParseError, lexer, token::Token};
 
@@ -14,4 +14,8 @@ pub fn attempt_to_parse<Value>(
     let stream = chumsky::Stream::from_iter(ast::Span::create(tokens.len(), 1), tokens.into_iter());
 
     parser.parse(stream)
+}
+
+pub fn optional_flag(token: Token) -> impl Parser<Token, bool, Error = ParseError> {
+    just(token).ignored().or_not().map(|v| v.is_some())
 }

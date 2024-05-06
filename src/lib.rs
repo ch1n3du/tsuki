@@ -7,5 +7,5 @@ pub mod lexer;
 pub mod parser;
 mod pattern;
 mod token;
-mod type_annotation;
+mod type_;
 mod utils;

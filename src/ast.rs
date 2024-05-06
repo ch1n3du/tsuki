@@ -1,41 +1,31 @@
 use std::ops::Range;
 
-use crate::{expr::UntypedExpr, type_annotation::TypeAnnotation};
+use crate::{expr::UntypedExpr, type_::Type};
 
-pub const CAPTURE_VARIABLE: &str = "_capture";
-pub const PIPE_VARIABLE: &str = "_pipe";
+pub type UntypedDefinition = Definition<UntypedExpr>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BinaryOp {
-    // Boolean Logic
-    And,
-    Or,
-
-    // Equality
-    Eq,
-    NotEq,
-
-    // Order Comparison
-    LessThan,
-    LessThanOrEqual,
-    GreaterThan,
-    GreaterThanOrEqual,
-
-    // Math
-    Add,
-    Subtract,
-    Multiply,
-    Divide,
-    Modulo,
+#[derive(Debug)]
+pub enum Definition<Expr> {
+    Fn(Function<Expr>),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UnaryOp {
-    Not,
-    Negate,
+pub type UntypedFunction = Function<UntypedExpr>;
+
+#[derive(Debug)]
+pub struct Function<Expr> {
+    pub is_public: bool,
+    pub arguments: Vec<Argument>,
+    pub name: String,
+    pub body: Expr,
+    pub return_type: Type,
+    pub doc: Option<String>,
+    // Span of the function type definition
+    pub location: Span,
+    // Location of actual end of the function
+    pub end_position: usize,
 }
 
-pub type ParsedCallArg = CallArg<Option<UntypedExpr>>;
+pub type UntypedCallArg = CallArg<UntypedExpr>;
 
 #[derive(Debug, Clone)]
 pub struct CallArg<A> {
@@ -44,28 +34,15 @@ pub struct CallArg<A> {
     pub value: A,
 }
 
-pub type UntypedArgument = Argument<()>;
-
 #[derive(Debug, Clone, PartialEq)]
-pub struct Argument<T> {
+pub struct Argument {
     pub argument_name: ArgumentName,
-    pub location: Span,
-    pub annotation: Option<TypeAnnotation>,
+    pub annotation: Type,
     pub doc: Option<String>,
-    pub type_: T,
+    pub location: Span,
 }
 
-impl<T> Argument<T> {
-    pub fn set_type<B>(self, type_: B) -> Argument<B> {
-        Argument {
-            type_,
-            argument_name: self.argument_name,
-            location: self.location,
-            annotation: self.annotation,
-            doc: self.doc,
-        }
-    }
-
+impl Argument {
     pub fn get_variable_name(&self) -> Option<&str> {
         self.argument_name.get_variable_name()
     }
@@ -103,6 +80,39 @@ impl ArgumentName {
             ArgumentName::Named { label, .. } => label.to_string(),
         }
     }
+}
+
+pub const CAPTURE_VARIABLE: &str = "_capture";
+pub const PIPE_VARIABLE: &str = "_pipe";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinaryOp {
+    // Boolean Logic
+    And,
+    Or,
+
+    // Equality
+    Eq,
+    NotEq,
+
+    // Order Comparison
+    LessThan,
+    LessThanOrEqual,
+    GreaterThan,
+    GreaterThanOrEqual,
+
+    // Math
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Modulo,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnaryOp {
+    Not,
+    Negate,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

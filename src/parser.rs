@@ -1,16 +1,17 @@
 use chumsky::{
-    primitive::{choice, just},
+    primitive::{choice, just, todo},
     recursive::{recursive, Recursive},
     select, Parser,
 };
 
 use crate::{
-    ast::{self, ParsedCallArg, Span},
+    ast::{self, Argument, ArgumentName, Span, UntypedCallArg, UntypedDefinition},
     call::call_parser,
     expr::UntypedExpr,
     extra::ModuleExtra,
     lexer,
-    type_annotation::type_annotation_parser,
+    type_::type_annotation_parser,
+    utils,
 };
 
 use super::{error::ParseError, token::Token};
@@ -81,11 +82,7 @@ fn let_expr_parser<'a>(
     just(Token::Let)
         // TODO: Implement Parsing for patterns
         .ignore_then(raw_identifier_parser())
-        .then(
-            just(Token::Colon)
-                .ignore_then(type_annotation_parser())
-                .or_not(),
-        )
+        .then(just(Token::Colon).ignore_then(type_annotation_parser()))
         .then_ignore(just(Token::Equal))
         .then(expression_parser.clone())
         .validate(
@@ -108,7 +105,7 @@ fn let_expr_parser<'a>(
 // Helper type for parsing chained expressions
 #[derive(Debug)]
 pub enum Chain {
-    Call(Vec<ParsedCallArg>, Span),
+    Call(Vec<UntypedCallArg>, Span),
     FieldAccess(String, Span),
     TupleIndex(usize, Span),
 }
@@ -155,6 +152,50 @@ fn constructor_parser() -> impl Parser<Token, UntypedExpr, Error = ParseError> {
         })
 }
 
+fn block_parser<'a>(
+    expression_sequence_parser: RecursiveExpressionParser<'a>,
+) -> impl Parser<Token, UntypedExpr> + '_ {
+    choice((
+        expression_sequence_parser
+            .clone()
+            .delimited_by(just(Token::LeftCurly), just(Token::RightCurly)),
+        expression_sequence_parser
+            .clone()
+            .delimited_by(just(Token::LeftCurly), just(Token::RightCurly)),
+    ))
+    .map_with_span(|expr, span| {
+        if matches!(expr, UntypedExpr::Assignment { .. }) {
+            UntypedExpr::Sequence {
+                location: span,
+                expressions: vec![expr],
+            }
+        } else {
+            expr
+        }
+    })
+}
+
+fn if_else_parser<'a>(
+    expression_sequence_parser: RecursiveExpressionParser<'a>,
+    expression_parser: RecursiveExpressionParser<'a>,
+) -> impl Parser<Token, UntypedExpr, Error = ParseError> {
+    just(Token::If).ignore_then(
+        expression_parser
+            .clone()
+            .then(block_parser(expression_sequence_parser.clone()).map_with_span(|(condition, body), span|)),
+    )
+    // .then(just(Token::Else).ignore_then())
+}
+
+/// Parses things that can be found at the start of a chained expression.
+fn chain_start<'a>(
+    _expression_sequence_parser: RecursiveExpressionParser<'a>,
+    _expression_parser: RecursiveExpressionParser<'a>,
+) -> impl Parser<Token, UntypedExpr, Error = ParseError> + 'a {
+    // TODO add more subparsers
+    choice((string_parser(), int_parser(), identifier_parser()))
+}
+
 fn chain_parser<'a>(
     expression_sequence_parser: RecursiveExpressionParser<'a>,
     expression_parser: RecursiveExpressionParser<'a>,
@@ -172,15 +213,6 @@ fn chain_parser<'a>(
             Chain::FieldAccess(label, location) => current_expr.field_access(label, location),
             Chain::TupleIndex(index, location) => current_expr.tuple_index(index, location),
         })
-}
-
-/// Parses things that can be found at the start of a chained expression.
-fn chain_start<'a>(
-    _expression_sequence_parser: RecursiveExpressionParser<'a>,
-    _expression_parser: RecursiveExpressionParser<'a>,
-) -> impl Parser<Token, UntypedExpr, Error = ParseError> + 'a {
-    // TODO add more subparsers
-    choice((string_parser(), int_parser(), identifier_parser()))
 }
 
 /// Parses a single expression.
@@ -352,10 +384,77 @@ pub fn expression_sequence_parser<'a>() -> RecursiveExpressionParser<'a> {
     })
 }
 
+pub fn parameter_parser() -> impl Parser<Token, ast::Argument, Error = ParseError> {
+    choice((
+        select! { Token::Name { name } => name }
+            .then(select! { Token::Name { name } => name})
+            .map_with_span(move |(label, name), span| ArgumentName::Named {
+                label,
+                name,
+                location: span,
+            }),
+        select! { Token::Name { name } => name }.map_with_span(move |name, span| {
+            ArgumentName::Named {
+                label: name.clone(),
+                name,
+                location: span,
+            }
+        }),
+    ))
+    .then(just(Token::Colon).ignore_then(type_annotation_parser()))
+    .map_with_span(|(argument_name, annotation), location| Argument {
+        location,
+        annotation,
+        doc: None,
+        argument_name,
+    })
+}
+
+pub fn function_parser() -> impl Parser<Token, ast::UntypedDefinition, Error = ParseError> {
+    utils::optional_flag(Token::Pub)
+        .then_ignore(just(Token::Fn))
+        .then(select! { Token::Name { name } => name })
+        .then(
+            parameter_parser()
+                .separated_by(just(Token::Comma))
+                .allow_trailing()
+                .delimited_by(just(Token::LeftParen), just(Token::RightParen))
+                .map_with_span(|arguments, span| (arguments, span)),
+        )
+        .then(just(Token::RightArrow).ignore_then(type_annotation_parser()))
+        .then(
+            expression_sequence_parser()
+                .or_not()
+                .delimited_by(just(Token::LeftCurly), just(Token::RightCurly)),
+        )
+        .map_with_span(
+            |((((is_public, name), (arguments, arg_span)), return_annotation), body), span| {
+                ast::UntypedDefinition::Fn(ast::Function {
+                    location: ast::Span {
+                        start: span.start,
+                        end: return_annotation.get_location().end,
+                    },
+                    is_public,
+                    name,
+                    arguments,
+                    body: body.unwrap(),
+                    doc: None,
+                    return_type: return_annotation,
+                    end_position: span.end - 1,
+                })
+            },
+        )
+}
+
+pub fn definition_parser() -> impl Parser<Token, UntypedDefinition, Error = ParseError> {
+    choice((function_parser(), function_parser()))
+}
+
+/// Parses a src string into a module
 pub fn module_parser(
     src: &str,
     // kind
-) -> Result<(UntypedExpr, ModuleExtra), Vec<ParseError>> {
+) -> Result<(UntypedDefinition, ModuleExtra), Vec<ParseError>> {
     let lexer::LexInfo {
         tokens,
         module_extra,
@@ -363,18 +462,19 @@ pub fn module_parser(
 
     let stream = chumsky::Stream::from_iter(ast::Span::create(tokens.len(), 1), tokens.into_iter());
 
-    let expr = expression_parser(expression_sequence_parser()).parse(stream);
-    match expr {
-        Ok(expr) => Ok((expr, module_extra)),
+    // let expr = expression_parser(expression_sequence_parser()).parse(stream);
+    let result = definition_parser().parse(stream);
+    match result {
+        Ok(definition) => Ok((definition, module_extra)),
         Err(parse_errors) => Err(parse_errors),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    fn can_parse(src: &str) -> (UntypedExpr, ModuleExtra) {
-        module_parser(src).unwrap()
-    }
+    // use super::*;
+    //
+    // fn can_parse(src: &str) -> (UntypedExpr, ModuleExtra) {
+    //     module_parser(src).unwrap()
+    // }
 }

@@ -1,14 +1,7 @@
 use crate::{
-    ast::{self, Argument, BinaryOp, CallArg, Span, UnaryOp},
-    type_annotation::TypeAnnotation,
+    ast::{self, Argument, BinaryOp, CallArg, Span, UnaryOp, UntypedCallArg},
+    type_::Type,
 };
-
-// Represent how a function was written so that we can format it back.
-#[derive(Debug, Clone, PartialEq, Copy)]
-pub enum FunctionStyle {
-    Plain,
-    Capture,
-}
 
 #[derive(Debug, Clone)]
 pub enum UntypedExpr {
@@ -56,7 +49,7 @@ pub enum UntypedExpr {
         value: Box<Self>,
         // TODO: Change to a `Pattern`
         pattern: String,
-        type_annotation: Option<TypeAnnotation>,
+        type_annotation: Type,
     },
     FieldAccess {
         location: Span,
@@ -74,10 +67,9 @@ pub enum UntypedExpr {
     },
     Function {
         location: Span,
-        function_style: FunctionStyle,
-        arguments: Vec<Argument<()>>,
+        arguments: Vec<Argument>,
         body: Box<Self>,
-        return_annotation: Option<TypeAnnotation>,
+        return_annotation: Option<Type>,
     },
     Call {
         location: Span,
@@ -86,8 +78,8 @@ pub enum UntypedExpr {
     },
 }
 
-pub const DEFAULT_TODO_STR: &str = "aiken::todo";
-pub const DEFAULT_ERROR_STR: &str = "aiken::error";
+pub const DEFAULT_TODO_STR: &str = "tsuki::todo";
+pub const DEFAULT_ERROR_STR: &str = "tsuki::error";
 
 impl UntypedExpr {
     // pub fn todo(reason: Option<Self>, location: Span) -> Self {
@@ -131,71 +123,11 @@ impl UntypedExpr {
         }
     }
 
-    pub fn call(self, args: Vec<CallArg<Option<UntypedExpr>>>, location: Span) -> Self {
-        let mut holes = Vec::new();
-
-        let args = args
-            .into_iter()
-            .enumerate()
-            .map(|(index, a)| match a {
-                CallArg {
-                    value: Some(value),
-                    label,
-                    location,
-                } => CallArg {
-                    value,
-                    label,
-                    location,
-                },
-                CallArg {
-                    value: None,
-                    label,
-                    location,
-                } => {
-                    let name = format!("{}__{index}", ast::CAPTURE_VARIABLE);
-
-                    holes.push(ast::Argument {
-                        location: Span::empty(),
-                        annotation: None,
-                        doc: None,
-                        argument_name: ast::ArgumentName::Named {
-                            label: name.clone(),
-                            name,
-                            location: Span::empty(),
-                        },
-                        type_: (),
-                    });
-
-                    ast::CallArg {
-                        label,
-                        location,
-                        value: UntypedExpr::Identifier {
-                            location,
-                            name: format!("{}__{index}", ast::CAPTURE_VARIABLE),
-                        },
-                    }
-                }
-            })
-            .collect();
-
-        let call = UntypedExpr::Call {
+    pub fn call(self, args: Vec<UntypedCallArg>, location: Span) -> Self {
+        UntypedExpr::Call {
             location: self.location().union(location),
             function: Box::new(self),
             arguments: args,
-        };
-
-        // If some arguments are not supplied the return a closure that takes those as an
-        // argument
-        if holes.is_empty() {
-            call
-        } else {
-            UntypedExpr::Function {
-                location: call.location(),
-                function_style: FunctionStyle::Capture,
-                arguments: holes,
-                body: Box::new(call),
-                return_annotation: None,
-            }
         }
     }
 
