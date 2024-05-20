@@ -137,7 +137,8 @@ fn field_access_parser() -> impl Parser<Token, Chain, Error = ParseError> {
         .map_with_span(Chain::FieldAccess)
 }
 
-fn constructor_parser() -> impl Parser<Token, UntypedExpr, Error = ParseError> {
+// TODO: Finish implementation
+fn _constructor_parser() -> impl Parser<Token, UntypedExpr, Error = ParseError> {
     select! {Token::Name { name } => name}
         .map_with_span(|module, span| (module, span))
         .then_ignore(just(Token::Dot))
@@ -232,6 +233,7 @@ fn chain_start<'a>(
         float_parser(),
         bool_parser(),
         identifier_parser(),
+        let_expr_parser(expression_parser.clone()),
         if_else_parser(expression_sequence_parser, expression_parser),
     ))
 }
@@ -458,7 +460,8 @@ pub fn function_parser() -> impl Parser<Token, ast::UntypedDefinition, Error = P
                 .delimited_by(just(Token::LeftCurly), just(Token::RightCurly)),
         )
         .map_with_span(
-            |((((is_public, name), (arguments, arg_span)), return_annotation), body), span| {
+            |((((is_public, name), (arguments, arguments_span)), return_annotation), body),
+             span| {
                 ast::UntypedDefinition::Fn(ast::Function {
                     location: ast::Span {
                         start: span.start,
@@ -467,6 +470,7 @@ pub fn function_parser() -> impl Parser<Token, ast::UntypedDefinition, Error = P
                     is_public,
                     name,
                     arguments,
+                    arguments_span,
                     body: body.unwrap(),
                     doc: None,
                     return_type: return_annotation,

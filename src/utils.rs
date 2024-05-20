@@ -2,6 +2,7 @@ use chumsky::{primitive::just, Parser};
 
 use crate::{ast, error::ParseError, lexer, token::Token};
 
+#[allow(unused)]
 pub fn attempt_to_parse<Value>(
     src: &str,
     parser: impl Parser<Token, Value, Error = ParseError>,

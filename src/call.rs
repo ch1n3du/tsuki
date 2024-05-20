@@ -27,30 +27,3 @@ pub fn call_parser<'a>(
         .delimited_by(just(Token::LeftParen), just(Token::RightParen))
         .map_with_span(Chain::Call)
 }
-
-#[cfg(test)]
-mod tests {
-    use pretty_assertions::assert_eq;
-
-    use crate::{
-        error::ParseError,
-        parser::{expression_parser, expression_sequence_parser, Chain},
-        utils::attempt_to_parse,
-    };
-
-    use super::call_parser;
-    //
-    // fn try_parsing_call(src: &str) -> Result<Chain, Vec<ParseError>> {
-    //     // attempt_to_parse(
-    //     //     src,
-    //     //     call_parser(expression_parser(expression_sequence_parser())),
-    //     // )
-    //     todo!()
-    // }
-    //
-    // #[test]
-    // fn can_parse_simple_labelled_call() {
-    //     let result = try_parsing_call("(name: \"Von Trier\"), age: 17)");
-    //     panic!("{result:#?}")
-    // }
-}

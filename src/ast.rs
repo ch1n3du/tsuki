@@ -15,6 +15,7 @@ pub type UntypedFunction = Function<UntypedExpr>;
 pub struct Function<Expr> {
     pub is_public: bool,
     pub arguments: Vec<Argument>,
+    pub arguments_span: Span,
     pub name: String,
     pub body: Expr,
     pub return_type: Type,

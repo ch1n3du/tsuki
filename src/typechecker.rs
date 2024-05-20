@@ -6,6 +6,7 @@ use crate::{
     type_::Type,
 };
 
+#[allow(unused)]
 pub struct TypeChecker {
     current_module: String,
     environment: HashMap<String, Type>,
@@ -53,46 +54,53 @@ impl TypeChecker {
                 right,
             } => self.check_binary_expr(op.clone(), left, right, location.clone())?,
             UntypedExpr::Assignment {
-                location,
-                value,
-                pattern,
-                type_annotation,
+                location: _,
+                value: _,
+                pattern: _,
+                type_annotation: _,
             } => todo!("Typecheck assignment"),
-            UntypedExpr::Identifier { location, name } => todo!("Typecheck identifiers"),
+            UntypedExpr::Identifier {
+                location: _,
+                name: _,
+            } => todo!("Typecheck identifiers"),
             UntypedExpr::Sequence {
                 location,
                 expressions,
             } => self.check_sequence_expr(&expressions, location.clone())?,
             UntypedExpr::If {
-                location,
-                branches,
-                final_else,
+                location: _,
+                branches: _,
+                final_else: _,
             } => todo!("Typecheck if/else expressions"),
             UntypedExpr::Function {
-                location,
-                arguments,
-                body,
-                return_annotation,
+                location: _,
+                arguments: _,
+                arg_span: _,
+                body: _,
+                return_annotation: _,
             } => todo!("Typecheck functions"),
             UntypedExpr::Call {
-                location,
-                arguments,
-                function,
+                location: _,
+                arguments: _,
+                function: _,
             } => todo!("Typecheck function calls"),
             UntypedExpr::Pipeline {
-                expressions,
-                one_liner,
+                expressions: _,
+                one_liner: _,
             } => todo!("Typecheck pipelines"),
             UntypedExpr::FieldAccess {
-                location,
-                label,
-                container,
+                location: _,
+                label: _,
+                container: _,
             } => todo!("Typecheck field accesses"),
-            UntypedExpr::Tuple { location, elements } => todo!("Typecheck tuple instantiation"),
+            UntypedExpr::Tuple {
+                location: _,
+                elements: _,
+            } => todo!("Typecheck tuple instantiation"),
             UntypedExpr::TupleIndex {
-                location,
-                index,
-                tuple,
+                location: _,
+                index: _,
+                tuple: _,
             } => todo!("Typecheck tuple indexing"),
         };
 

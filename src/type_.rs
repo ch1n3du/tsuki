@@ -1,6 +1,5 @@
 use crate::{ast::Span, error::ParseError, token::Token};
 use chumsky::{
-    chain::Chain,
     primitive::{choice, just},
     recursive::recursive,
     select, Parser,

@@ -87,6 +87,7 @@ pub enum TypedExpr {
         location: Span,
         type_: Type,
         arguments: Vec<Argument>,
+        arg_span: Span,
         body: Box<Self>,
         return_annotation: Option<Type>,
     },
@@ -115,10 +116,17 @@ impl TypedExpr {
             | TypedExpr::Call { type_, .. } => type_.clone(),
             TypedExpr::Assignment { .. } => Type::unit_type(Span::empty()),
             TypedExpr::UnaryOp { value, .. } => value.get_type(),
-            TypedExpr::Sequence { expressions, .. } => {
-                todo!()
+            TypedExpr::Sequence {
+                expressions,
+                location,
+            } => {
+                if expressions.is_empty() {
+                    Type::unit_type(*location)
+                } else {
+                    expressions.last().unwrap().get_type()
+                }
             }
-            TypedExpr::Pipeline { expressions, .. } => {
+            TypedExpr::Pipeline { expressions: _, .. } => {
                 todo!()
             }
         }
@@ -195,6 +203,7 @@ pub enum UntypedExpr {
     Function {
         location: Span,
         arguments: Vec<Argument>,
+        arg_span: Span,
         body: Box<Self>,
         return_annotation: Option<Type>,
     },
