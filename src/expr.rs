@@ -1,7 +1,129 @@
+use vec1::Vec1;
+
 use crate::{
-    ast::{self, Argument, BinaryOp, CallArg, Span, UnaryOp, UntypedCallArg},
+    ast::{Argument, BinaryOp, CallArg, Span, UnaryOp, UntypedCallArg},
     type_::Type,
 };
+
+#[derive(Debug, Clone)]
+pub enum TypedExpr {
+    Integer {
+        location: Span,
+        type_: Type,
+        value: String,
+    },
+    Boolean {
+        location: Span,
+        type_: Type,
+        value: bool,
+    },
+    Float {
+        location: Span,
+        type_: Type,
+        value: String,
+    },
+    String {
+        location: Span,
+        type_: Type,
+        value: String,
+    },
+    Identifier {
+        location: Span,
+        type_: Type,
+        name: String,
+    },
+    UnaryOp {
+        location: Span,
+        op: UnaryOp,
+        value: Box<Self>,
+    },
+    BinaryOp {
+        location: Span,
+        type_: Type,
+        op: BinaryOp,
+        left: Box<Self>,
+        right: Box<Self>,
+    },
+    Sequence {
+        location: Span,
+        expressions: Vec<Self>,
+    },
+    Pipeline {
+        expressions: Vec<Self>,
+        one_liner: bool,
+    },
+    Assignment {
+        location: Span,
+        type_: Type,
+        value: Box<Self>,
+        // TODO: Change to a `Pattern`
+        pattern: String,
+        type_annotation: Type,
+    },
+    If {
+        location: Span,
+        type_: Type,
+        branches: Vec1<IfBranch<Self>>,
+        final_else: Box<Self>,
+    },
+    FieldAccess {
+        location: Span,
+        type_: Type,
+        label: String,
+        container: Box<Self>,
+    },
+    Tuple {
+        location: Span,
+        type_: Type,
+        elements: Vec<Self>,
+    },
+    TupleIndex {
+        location: Span,
+        type_: Type,
+        index: usize,
+        tuple: Box<Self>,
+    },
+    Function {
+        location: Span,
+        type_: Type,
+        arguments: Vec<Argument>,
+        body: Box<Self>,
+        return_annotation: Option<Type>,
+    },
+    Call {
+        location: Span,
+        type_: Type,
+        arguments: Vec<CallArg<UntypedExpr>>,
+        function: Box<Self>,
+    },
+}
+
+impl TypedExpr {
+    pub fn get_type(&self) -> Type {
+        match self {
+            TypedExpr::Boolean { type_, .. }
+            | TypedExpr::Integer { type_, .. }
+            | TypedExpr::Float { type_, .. }
+            | TypedExpr::String { type_, .. }
+            | TypedExpr::Identifier { type_, .. }
+            | TypedExpr::BinaryOp { type_, .. }
+            | TypedExpr::If { type_, .. }
+            | TypedExpr::FieldAccess { type_, .. }
+            | TypedExpr::Tuple { type_, .. }
+            | TypedExpr::TupleIndex { type_, .. }
+            | TypedExpr::Function { type_, .. }
+            | TypedExpr::Call { type_, .. } => type_.clone(),
+            TypedExpr::Assignment { .. } => Type::unit_type(Span::empty()),
+            TypedExpr::UnaryOp { value, .. } => value.get_type(),
+            TypedExpr::Sequence { expressions, .. } => {
+                todo!()
+            }
+            TypedExpr::Pipeline { expressions, .. } => {
+                todo!()
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum UntypedExpr {
@@ -50,6 +172,11 @@ pub enum UntypedExpr {
         // TODO: Change to a `Pattern`
         pattern: String,
         type_annotation: Type,
+    },
+    If {
+        location: Span,
+        branches: Vec1<IfBranch<Self>>,
+        final_else: Box<Self>,
     },
     FieldAccess {
         location: Span,
@@ -189,6 +316,7 @@ impl UntypedExpr {
             | Self::UnaryOp { location, .. }
             | Self::BinaryOp { location, .. }
             | Self::Assignment { location, .. }
+            | Self::If { location, .. }
             | Self::FieldAccess { location, .. }
             | Self::Tuple { location, .. }
             | Self::TupleIndex { location, .. }
@@ -202,4 +330,11 @@ impl UntypedExpr {
                 .union(expressions.last().unwrap().location()),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IfBranch<Expr> {
+    pub condition: Expr,
+    pub body: Expr,
+    pub location: Span,
 }

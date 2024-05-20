@@ -89,7 +89,19 @@ pub fn run(src: &str) -> Result<LexInfo, Vec<ParseError>> {
 }
 
 pub fn lexer() -> impl Parser<char, Vec<(Token, Span)>, Error = ParseError> {
-    let base10 = text::int(10).map(|value| Token::Integer { value });
+    let base10 = text::int(10)
+        .then(just('.').ignore_then(text::digits(10)).or_not())
+        .map(|(before_decimal, after_decimal)| {
+            if let Some(after_decimal) = after_decimal {
+                Token::Float {
+                    value: format!("{before_decimal}.{after_decimal}"),
+                }
+            } else {
+                Token::Integer {
+                    value: before_decimal,
+                }
+            }
+        });
 
     let base10_underscore = one_of("0123456789")
         .repeated()
@@ -193,6 +205,8 @@ pub fn lexer() -> impl Parser<char, Vec<(Token, Span)>, Error = ParseError> {
         "pub" => Token::Pub,
         "use" => Token::Use,
         "todo" => Token::Todo,
+        "true" => Token::Boolean { value: true },
+        "false" => Token::Boolean { value: false },
         "type" => Token::Type,
         "match" => Token::Match,
         _ => {

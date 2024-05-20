@@ -272,6 +272,7 @@ dependencies = [
  "owo-colors",
  "pretty_assertions",
  "thiserror",
+ "vec1",
 ]
 
 [[package]]
@@ -285,6 +286,12 @@ name = "unicode-width"
 version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e51733f11c9c4f72aa0c160008246859e340b00807569a0da0e7a1079b27ba85"
+
+[[package]]
+name = "vec1"
+version = "1.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ffb60dcfffc189bfd4e2a81333c268619fee9db53da71bce2bcbd8e129c56936"
 
 [[package]]
 name = "version_check"

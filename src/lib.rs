@@ -8,4 +8,5 @@ pub mod parser;
 mod pattern;
 mod token;
 mod type_;
+pub mod typechecker;
 mod utils;

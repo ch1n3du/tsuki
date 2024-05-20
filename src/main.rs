@@ -1,25 +1,33 @@
-use tsuki::lexer::run;
-use tsuki::parser::module_parser;
+use chumsky::Parser;
+use tsuki::typechecker::TypeChecker;
+use tsuki::{
+    ast,
+    lexer::{self, LexInfo},
+    parser,
+};
 
 fn main() {
     // let src = "- 1 + 3";
-    let src = r#"
-    fn fib(n: Int) -> Int {
-        // if n < 2 {
-        //    1
-        // } else {
-        //     fib(n-1) + fib(n-2)
-        // }
-        2 + 2
-    }
-    "#;
+    // let src = r#"
+    // fn fib(n: Int) -> Int {
+    //      if n < 2 {
+    //         1
+    //      } else {
+    //          fib(n-1) + fib(n-2)
+    //      }
+    //     2 + 2
+    // }
+    // "#;
+    let src = r#"23 - 4 > 42"#;
 
-    let tokens = run(src).unwrap();
-    println!("{tokens:#?}");
-    let expr = module_parser(src);
-    println!("Expression: {expr:#?}");
+    println!("Source: {src}");
+    let LexInfo { tokens, .. } = lexer::run(src).unwrap();
+    let stream = chumsky::Stream::from_iter(ast::Span::create(tokens.len(), 1), tokens.into_iter());
+    // println!("{tokens:#?}");
+    let untyped_expr = parser::expression_sequence_parser().parse(stream).unwrap();
+    println!("Untyped Expression: {untyped_expr:#?}");
 
-    let raw: String = "1000_000".to_string();
-    let new = raw.replace("_", "");
-    println!("{new}")
+    let mut checker = TypeChecker::new("testing_typechecking".to_string());
+    let typed_expr = checker.check_expr(&untyped_expr).unwrap();
+    println!("Typed Expresion: {typed_expr:#?}")
 }

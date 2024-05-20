@@ -1,12 +1,13 @@
 use crate::{ast::Span, error::ParseError, token::Token};
 use chumsky::{
+    chain::Chain,
     primitive::{choice, just},
     recursive::recursive,
     select, Parser,
 };
 
 /// This type serves as the AST for type annotations
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum Type {
     Constructor {
         location: Span,
@@ -41,7 +42,16 @@ impl Type {
         }
     }
 
-    pub fn boolean_type(location: Span) -> Self {
+    pub fn unit_type(location: Span) -> Self {
+        Type::Constructor {
+            module: None,
+            name: "Unit".to_string(),
+            type_arguments: Vec::new(),
+            location,
+        }
+    }
+
+    pub fn bool_type(location: Span) -> Self {
         Type::Constructor {
             name: "Bool".to_string(),
             module: None,
@@ -55,6 +65,92 @@ impl Type {
             module: None,
             type_arguments: Vec::new(),
             location,
+        }
+    }
+
+    pub fn float_type(location: Span) -> Self {
+        Type::Constructor {
+            name: "Float".to_string(),
+            module: None,
+            type_arguments: Vec::new(),
+            location,
+        }
+    }
+
+    pub fn string_type(location: Span) -> Self {
+        Type::Constructor {
+            name: "String".to_string(),
+            module: None,
+            type_arguments: Vec::new(),
+            location,
+        }
+    }
+
+    pub fn is_bool(&self) -> bool {
+        *self == Type::bool_type(Span::empty())
+    }
+
+    pub fn is_int(&self) -> bool {
+        *self == Type::int_type(Span::empty())
+    }
+
+    pub fn is_float(&self) -> bool {
+        *self == Type::float_type(Span::empty())
+    }
+
+    pub fn is_string(&self) -> bool {
+        *self == Type::string_type(Span::empty())
+    }
+
+    pub fn is_unit(&self) -> bool {
+        *self == Type::unit_type(Span::empty())
+    }
+}
+
+impl std::cmp::PartialEq for Type {
+    fn eq(&self, other: &Self) -> bool {
+        use Type::*;
+        match (self, other) {
+            (
+                Constructor {
+                    module: module_1,
+                    name: name_1,
+                    type_arguments: arg_types_1,
+                    ..
+                },
+                Constructor {
+                    module: module_2,
+                    name: name_2,
+                    type_arguments: arg_types_2,
+                    ..
+                },
+            ) => module_1 == module_2 && name_1 == name_2 && arg_types_1.len() == arg_types_2.len(),
+            (
+                Function {
+                    type_of_arguments: arg_types_1,
+                    return_type: return_type_1,
+                    ..
+                },
+                Function {
+                    type_of_arguments: arg_types_2,
+                    return_type: return_type_2,
+                    ..
+                },
+            ) => arg_types_1 == arg_types_2 && return_type_1 == return_type_2,
+            (
+                Tuple {
+                    type_of_elements: element_types_1,
+                    ..
+                },
+                Tuple {
+                    type_of_elements: element_types_2,
+                    ..
+                },
+            ) => element_types_1 == element_types_2,
+            (left, right) => {
+                println!("{left:?} {right:?}");
+                todo!("Implement equality for type variables");
+            }
         }
     }
 }
