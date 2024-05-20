@@ -2,16 +2,17 @@
 
 Tsuki is a simple functional programming language that targets WebAssembly bytecode.
 
-# Features
+## Features
 
-A rough sketch of language features
+- Expression-based syntax
+- First-class functions
+- Labelled arguments
+- Nice union types
 
-- [ ] Literals
-- [ ] Variables
-- [ ] `if`/`else` statements
-- [ ] Functions
-- [ ] Records
-- [ ] Enums
-- [ ] `match` statements
-- [ ] Named arguments
-- [ ] Function capturing
+## Roadmap
+
+- [x] Lexing
+- [ ] Parsing _Ongoing_
+- [ ] Typechecking _Ongoing_
+- [ ] Codegen
+- [ ] Benchmarking
