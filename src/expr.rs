@@ -54,7 +54,6 @@ pub enum TypedExpr {
     },
     Assignment {
         location: Span,
-        type_: Type,
         value: Box<Self>,
         // TODO: Change to a `Pattern`
         pattern: String,
@@ -63,7 +62,7 @@ pub enum TypedExpr {
     If {
         location: Span,
         type_: Type,
-        branches: Vec1<IfBranch<Self>>,
+        branches: Vec<IfBranch<Self>>,
         final_else: Box<Self>,
     },
     FieldAccess {
@@ -129,6 +128,31 @@ impl TypedExpr {
             TypedExpr::Pipeline { expressions: _, .. } => {
                 todo!()
             }
+        }
+    }
+
+    pub fn location(&self) -> Span {
+        match self {
+            Self::Integer { location, .. }
+            | Self::Float { location, .. }
+            | Self::Boolean { location, .. }
+            | Self::String { location, .. }
+            | Self::Identifier { location, .. }
+            | Self::UnaryOp { location, .. }
+            | Self::BinaryOp { location, .. }
+            | Self::Assignment { location, .. }
+            | Self::If { location, .. }
+            | Self::FieldAccess { location, .. }
+            | Self::Tuple { location, .. }
+            | Self::TupleIndex { location, .. }
+            | Self::Function { location, .. }
+            | Self::Call { location, .. }
+            | Self::Sequence { location, .. } => *location,
+            Self::Pipeline { expressions, .. } => expressions
+                .first()
+                .unwrap()
+                .location()
+                .union(expressions.last().unwrap().location()),
         }
     }
 }
@@ -346,4 +370,10 @@ pub struct IfBranch<Expr> {
     pub condition: Expr,
     pub body: Expr,
     pub location: Span,
+}
+
+impl IfBranch<TypedExpr> {
+    pub fn get_type(&self) -> Type {
+        self.body.get_type()
+    }
 }

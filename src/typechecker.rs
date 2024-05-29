@@ -2,21 +2,57 @@ use std::collections::HashMap;
 
 use crate::{
     ast::{BinaryOp, Span, UnaryOp},
-    expr::{TypedExpr, UntypedExpr},
+    expr::{IfBranch, TypedExpr, UntypedExpr},
     type_::Type,
 };
 
 #[allow(unused)]
 pub struct TypeChecker {
     current_module: String,
-    environment: HashMap<String, Type>,
+    definition_types: HashMap<String, Type>,
+    scopes: Vec<HashMap<String, Type>>,
 }
 
 impl TypeChecker {
     pub fn new(module_name: String) -> TypeChecker {
         TypeChecker {
             current_module: module_name,
-            environment: HashMap::new(),
+            scopes: vec![HashMap::new()],
+            definition_types: HashMap::new(),
+        }
+    }
+
+    fn push_scope(&mut self) {
+        self.scopes.push(HashMap::new());
+    }
+
+    fn pop_scope(&mut self) {
+        self.scopes.pop();
+    }
+
+    fn get_variable_type(&mut self, name: &str, location: Span) -> TypeResult<Type> {
+        self.scopes
+            .iter()
+            .find_map(|scope| scope.get(name).map(|type_| type_.clone()))
+            .ok_or(TypeError::VariableDoesNotExist {
+                name: name.to_string(),
+                location,
+            })
+    }
+
+    fn insert_variable_type(
+        &mut self,
+        name: String,
+        type_: Type,
+        location: Span,
+    ) -> TypeResult<()> {
+        let variable_exists = self.scopes.iter().any(|scope| scope.contains_key(&name));
+
+        if variable_exists {
+            Err(TypeError::VariableAlreadyExists { name, location })
+        } else {
+            self.scopes.last_mut().unwrap().insert(name, type_);
+            Ok(())
         }
     }
 
@@ -54,24 +90,28 @@ impl TypeChecker {
                 right,
             } => self.check_binary_expr(op.clone(), left, right, location.clone())?,
             UntypedExpr::Assignment {
-                location: _,
-                value: _,
-                pattern: _,
-                type_annotation: _,
-            } => todo!("Typecheck assignment"),
-            UntypedExpr::Identifier {
-                location: _,
-                name: _,
-            } => todo!("Typecheck identifiers"),
+                location,
+                value,
+                pattern,
+                type_annotation,
+            } => self.check_assignment_expr(
+                value,
+                pattern.clone(),
+                type_annotation.clone(),
+                location.clone(),
+            )?,
+            UntypedExpr::Identifier { location, name } => {
+                self.check_identifier_expr(name, location.clone())?
+            }
+            UntypedExpr::If {
+                location,
+                branches,
+                final_else,
+            } => self.check_if_expr(branches, final_else, location.clone())?,
             UntypedExpr::Sequence {
                 location,
                 expressions,
             } => self.check_sequence_expr(&expressions, location.clone())?,
-            UntypedExpr::If {
-                location: _,
-                branches: _,
-                final_else: _,
-            } => todo!("Typecheck if/else expressions"),
             UntypedExpr::Function {
                 location: _,
                 arguments: _,
@@ -277,6 +317,106 @@ impl TypeChecker {
         })
     }
 
+    fn check_assignment_expr(
+        &mut self,
+        value: &UntypedExpr,
+        pattern: String,
+        type_annotation: Type,
+        location: Span,
+    ) -> TypeResult<TypedExpr> {
+        let value: TypedExpr = self.check_expr(value)?;
+
+        if value.get_type() != type_annotation {
+            return Err(TypeError::AssingmentValueHasIncorrectType {
+                name: pattern,
+                expected: type_annotation,
+                found: value.get_type(),
+            });
+        }
+        self.insert_variable_type(pattern.clone(), type_annotation.clone(), location)?;
+
+        Ok(TypedExpr::Assignment {
+            location,
+            value: Box::new(value),
+            pattern,
+            type_annotation,
+        })
+    }
+
+    fn check_identifier_expr(&mut self, name: &str, location: Span) -> TypeResult<TypedExpr> {
+        let type_: Type = self.get_variable_type(name, location)?;
+
+        Ok(TypedExpr::Identifier {
+            location,
+            type_,
+            name: name.to_string(),
+        })
+    }
+
+    fn check_if_branch(
+        &mut self,
+        if_branch: &IfBranch<UntypedExpr>,
+    ) -> TypeResult<IfBranch<TypedExpr>> {
+        let condition: TypedExpr = self.check_expr(&if_branch.condition)?;
+        if !condition.get_type().is_bool() {
+            //TODO: Throw an error for non boolean condition expressions.
+            todo!("Handle non-boolean if block conditions")
+        }
+
+        let body: TypedExpr = self.check_expr(&if_branch.body)?;
+
+        Ok(IfBranch {
+            condition,
+            body,
+            location: if_branch.location,
+        })
+    }
+
+    fn check_if_expr(
+        &mut self,
+        branches: &[IfBranch<UntypedExpr>],
+        final_else: &UntypedExpr,
+        location: Span,
+    ) -> TypeResult<TypedExpr> {
+        // TODO: Added scoping
+        let mut if_branches: Vec<IfBranch<TypedExpr>> = Vec::new();
+        if_branches.push(self.check_if_branch(&branches[0])?);
+
+        let first_if_branch_type: Type = if_branches[0].get_type();
+
+        for if_branch in branches.iter().skip(1) {
+            let if_branch: IfBranch<TypedExpr> = self.check_if_branch(if_branch)?;
+
+            if if_branch.get_type() != first_if_branch_type {
+                return Err(TypeError::IfBranchesHaveDifferentTypes {
+                    first_branch_type: first_if_branch_type,
+                    first_branch_location: if_branches[0].location,
+                    second_branch_type: if_branch.get_type(),
+                    second_branch_location: if_branch.location,
+                });
+            }
+
+            if_branches.push(if_branch);
+        }
+
+        let final_else: TypedExpr = self.check_expr(final_else)?;
+        if final_else.get_type() != first_if_branch_type {
+            return Err(TypeError::IfBranchesHaveDifferentTypes {
+                first_branch_type: first_if_branch_type,
+                first_branch_location: if_branches[0].location,
+                second_branch_type: final_else.get_type(),
+                second_branch_location: final_else.location(),
+            });
+        }
+
+        Ok(TypedExpr::If {
+            location,
+            type_: first_if_branch_type,
+            branches: if_branches,
+            final_else: Box::new(final_else),
+        })
+    }
+
     fn check_sequence_expr(
         &mut self,
         expressions: &[UntypedExpr],
@@ -311,6 +451,28 @@ pub enum TypeError {
         left: Type,
         right: Type,
         location: Span,
+    },
+    IfConditionNotBoolean {
+        location: Span,
+    },
+    IfBranchesHaveDifferentTypes {
+        first_branch_type: Type,
+        first_branch_location: Span,
+        second_branch_type: Type,
+        second_branch_location: Span,
+    },
+    VariableDoesNotExist {
+        name: String,
+        location: Span,
+    },
+    VariableAlreadyExists {
+        name: String,
+        location: Span,
+    },
+    AssingmentValueHasIncorrectType {
+        name: String,
+        expected: Type,
+        found: Type,
     },
 }
 
@@ -381,5 +543,57 @@ mod tests {
             parse_and_typecheck_expr("false").get_type(),
             Type::bool_type(Span::empty())
         );
+    }
+
+    #[test]
+    fn can_typecheck_let_expr() {
+        assert_eq!(
+            parse_and_typecheck_expr("let pi: Float = 3.14").get_type(),
+            Type::unit_type(Span::empty())
+        )
+    }
+
+    #[test]
+    fn can_typecheck_sequence_expr() {
+        let src = r#"
+        let x: Int = 23
+        x + 2
+        "#;
+
+        assert_eq!(
+            parse_and_typecheck_expr(src).get_type(),
+            Type::int_type(Span::empty())
+        )
+    }
+
+    #[test]
+    fn can_typecheck_identifiers_expr() {
+        let src = r#"
+        let x: String = @"This is a Tsuki string"
+        x
+        "#;
+
+        assert_eq!(
+            parse_and_typecheck_expr(src).get_type(),
+            Type::string_type(Span::empty())
+        )
+    }
+
+    #[test]
+    fn can_typecheck_if_exprs() {
+        let src = r#"
+        let x: Int = 32
+        
+        if x > 42 {
+          2.3
+        } else {
+          3.2
+        }
+        "#;
+
+        assert_eq!(
+            parse_and_typecheck_expr(src).get_type(),
+            Type::float_type(Span::empty())
+        )
     }
 }
