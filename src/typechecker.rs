@@ -380,12 +380,17 @@ impl TypeChecker {
     ) -> TypeResult<TypedExpr> {
         // TODO: Added scoping
         let mut if_branches: Vec<IfBranch<TypedExpr>> = Vec::new();
+
+        self.push_scope();
         if_branches.push(self.check_if_branch(&branches[0])?);
+        self.pop_scope();
 
         let first_if_branch_type: Type = if_branches[0].get_type();
 
         for if_branch in branches.iter().skip(1) {
+            self.push_scope();
             let if_branch: IfBranch<TypedExpr> = self.check_if_branch(if_branch)?;
+            self.pop_scope();
 
             if if_branch.get_type() != first_if_branch_type {
                 return Err(TypeError::IfBranchesHaveDifferentTypes {
@@ -399,7 +404,9 @@ impl TypeChecker {
             if_branches.push(if_branch);
         }
 
+        self.push_scope();
         let final_else: TypedExpr = self.check_expr(final_else)?;
+        self.pop_scope();
         if final_else.get_type() != first_if_branch_type {
             return Err(TypeError::IfBranchesHaveDifferentTypes {
                 first_branch_type: first_if_branch_type,
