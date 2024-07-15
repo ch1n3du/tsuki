@@ -135,3 +135,20 @@ impl From<Token> for Pattern {
         Self::Token(token)
     }
 }
+
+#[derive(Debug)]
+pub enum Error {
+    DuplicateArgument {
+        label: String,
+        location: Span,
+        duplicate_location: Span,
+    },
+    DuplicateField {
+        label: String,
+        location: Span,
+        duplicate_location: Span,
+    },
+}
+
+/// Helper alias for Tsuki's Result type.
+pub type TResult<T> = Result<T, Error>;

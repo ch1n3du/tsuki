@@ -1,0 +1,9 @@
+module factorial
+
+fn factorial(n: Int) -> Int {
+    if n < 2 {
+        1
+    } else {
+        3 + 2
+    }
+}

@@ -73,6 +73,7 @@ pub fn run(src: &str) -> Result<LexInfo, Vec<ParseError>> {
                     }
                 }
                 Token::NewLine => None,
+                Token::EmptyLine => None,
                 _ => Some((token, *span)),
             };
 
@@ -209,6 +210,7 @@ pub fn lexer() -> impl Parser<char, Vec<(Token, Span)>, Error = ParseError> {
         "false" => Token::Boolean { value: false },
         "type" => Token::Type,
         "match" => Token::Match,
+        "module" => Token::Module,
         _ => {
             if s.chars().next().map_or(false, |c| c.is_uppercase()) {
                 Token::UpName {

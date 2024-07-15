@@ -1,7 +1,13 @@
 use std::collections::HashMap;
 
+use chumsky::chain::Chain;
+
 use crate::{
-    ast::{BinaryOp, Span, UnaryOp},
+    ast::{
+        BinaryOp, CallArg, Definition, Function, Module, Span, TypedDefinition, TypedModule,
+        UnaryOp, UntypedDefinition, UntypedModule,
+    },
+    call,
     expr::{IfBranch, TypedExpr, UntypedExpr},
     type_::Type,
 };
@@ -9,8 +15,9 @@ use crate::{
 #[allow(unused)]
 pub struct TypeChecker {
     current_module: String,
-    definition_types: HashMap<String, Type>,
+    top_level_definitions: HashMap<String, Type>,
     scopes: Vec<HashMap<String, Type>>,
+    // function_label_maps: HashMap<String, Vec<>>
 }
 
 impl TypeChecker {
@@ -18,64 +25,108 @@ impl TypeChecker {
         TypeChecker {
             current_module: module_name,
             scopes: vec![HashMap::new()],
-            definition_types: HashMap::new(),
+            top_level_definitions: HashMap::new(),
         }
     }
 
-    fn push_scope(&mut self) {
-        self.scopes.push(HashMap::new());
+    pub fn check_module(&mut self, module: &UntypedModule) -> TypeResult<TypedModule> {
+        let Module {
+            name,
+            definitions,
+            docs,
+            type_info,
+        } = module;
+
+        // Put dummy types for all definitions
+        for definition in definitions {
+            self.top_level_definitions
+                .insert(definition.get_name(), definition.get_type());
+        }
+
+        let mut typed_definitions: Vec<TypedDefinition> = Vec::new();
+        for definition in definitions {
+            typed_definitions.push(self.check_definition(definition)?);
+        }
+
+        Ok(TypedModule {
+            name: name.clone(),
+            docs: docs.clone(),
+            type_info: type_info.clone(),
+            definitions: typed_definitions,
+        })
     }
 
-    fn pop_scope(&mut self) {
-        self.scopes.pop();
-    }
-
-    fn get_variable_type(&mut self, name: &str, location: Span) -> TypeResult<Type> {
-        self.scopes
-            .iter()
-            .find_map(|scope| scope.get(name).map(|type_| type_.clone()))
-            .ok_or(TypeError::VariableDoesNotExist {
-                name: name.to_string(),
-                location,
-            })
-    }
-
-    fn insert_variable_type(
+    pub fn check_definition(
         &mut self,
-        name: String,
-        type_: Type,
-        location: Span,
-    ) -> TypeResult<()> {
-        let variable_exists = self.scopes.iter().any(|scope| scope.contains_key(&name));
-
-        if variable_exists {
-            Err(TypeError::VariableAlreadyExists { name, location })
-        } else {
-            self.scopes.last_mut().unwrap().insert(name, type_);
-            Ok(())
+        definition: &UntypedDefinition,
+    ) -> TypeResult<TypedDefinition> {
+        match definition {
+            Definition::Fn(func) => Ok(TypedDefinition::Fn(self.check_function(func)?)),
         }
+    }
+
+    pub fn check_function(
+        &mut self,
+        function: &Function<UntypedExpr>,
+    ) -> TypeResult<Function<TypedExpr>> {
+        let expected_type = Type::Function {
+            location: function.type_definition_span,
+            type_of_arguments: function.argument_types(),
+            return_type: Box::new(function.return_type.clone()),
+        };
+
+        // Insert the expected function type to support checking recursive functions
+        self.scopes[0].insert(function.name.clone(), expected_type);
+
+        // Create a new scope above the prelude scope to typecheck the function.
+        self.push_scope();
+
+        // Insert the arguments at the top of the scope
+        for argument in function.arguments.iter() {
+            self.scopes.last_mut().unwrap().insert(
+                argument
+                    .argument_name
+                    .get_variable_name()
+                    .unwrap()
+                    .to_string(),
+                argument.annotation.clone(),
+            );
+        }
+
+        // Typecheck the function body
+        let typed_body = self.check_expr(&function.body)?;
+
+        self.pop_scope();
+
+        Ok(Function {
+            is_public: function.is_public,
+            arguments: function.arguments.clone(),
+            arguments_span: function.arguments_span,
+            name: function.name.clone(),
+            body: typed_body,
+            return_type: function.return_type.clone(),
+            doc: function.doc.clone(),
+            type_definition_span: function.type_definition_span,
+            end_position: function.end_position,
+        })
     }
 
     pub fn check_expr(&mut self, expr: &UntypedExpr) -> TypeResult<TypedExpr> {
         let typed_expr = match expr {
             UntypedExpr::Integer { location, value } => TypedExpr::Integer {
                 location: location.clone(),
-                type_: Type::int_type(location.clone()),
                 value: value.clone(),
             },
             UntypedExpr::Boolean { location, value } => TypedExpr::Boolean {
                 location: location.clone(),
-                type_: Type::bool_type(location.clone()),
                 value: value.clone(),
             },
             UntypedExpr::Float { location, value } => TypedExpr::Float {
                 location: location.clone(),
-                type_: Type::float_type(location.clone()),
                 value: value.clone(),
             },
             UntypedExpr::String { location, value } => TypedExpr::String {
                 location: location.clone(),
-                type_: Type::string_type(location.clone()),
                 value: value.clone(),
             },
             UntypedExpr::UnaryOp {
@@ -118,12 +169,12 @@ impl TypeChecker {
                 arg_span: _,
                 body: _,
                 return_annotation: _,
-            } => todo!("Typecheck functions"),
+            } => todo!("Typecheck anonymous functions"),
             UntypedExpr::Call {
-                location: _,
-                arguments: _,
-                function: _,
-            } => todo!("Typecheck function calls"),
+                location,
+                arguments,
+                function,
+            } => self.check_call_expr(function, arguments, location.clone())?,
             UntypedExpr::Pipeline {
                 expressions: _,
                 one_liner: _,
@@ -441,6 +492,114 @@ impl TypeChecker {
             expressions: typed_expressions,
         })
     }
+
+    fn check_call_arg(
+        &mut self,
+        call_arg: &CallArg<UntypedExpr>,
+    ) -> TypeResult<CallArg<TypedExpr>> {
+        let typed_expr = self.check_expr(&call_arg.value)?;
+
+        Ok(CallArg {
+            label: call_arg.label.clone(),
+            location: call_arg.location,
+            value: typed_expr,
+        })
+    }
+
+    fn check_call_expr(
+        &mut self,
+        function: &UntypedExpr,
+        arguments: &[CallArg<UntypedExpr>],
+        location: Span,
+    ) -> TypeResult<TypedExpr> {
+        let function: TypedExpr = self.check_expr(function)?;
+        let function_type: Type = function.get_type();
+        let mut typed_call_args = Vec::with_capacity(arguments.len());
+
+        // TODO: Arrange args
+
+        for call_arg in arguments {
+            typed_call_args.push(self.check_call_arg(call_arg)?)
+        }
+
+        if let Type::Function {
+            location: _,
+            type_of_arguments,
+            return_type,
+        } = function_type
+        {
+            if type_of_arguments.len() != typed_call_args.len() {
+                todo!(
+                    "Arguments are not of the same length, expected {} arguments but got {}",
+                    type_of_arguments.len(),
+                    typed_call_args.len()
+                )
+            }
+
+            for (i, (expected_type, actual_type)) in type_of_arguments
+                .iter()
+                .zip(typed_call_args.iter().map(|arg| arg.value.get_type()))
+                .enumerate()
+            {
+                if *expected_type != actual_type {
+                    todo!("Argument \"{i}\" is of an incorrect type expected \"{expected_type:?}\" found \"{actual_type:?}\"",)
+                }
+            }
+
+            Ok(TypedExpr::Call {
+                location,
+                type_: return_type.as_ref().clone(),
+                arguments: typed_call_args,
+                function: Box::new(function),
+            })
+        } else {
+            todo!("Type should be a function")
+        }
+    }
+
+    // Utility methods
+    fn push_scope(&mut self) {
+        self.scopes.push(HashMap::new());
+    }
+
+    fn pop_scope(&mut self) {
+        self.scopes.pop();
+    }
+
+    fn get_variable_type(&mut self, name: &str, location: Span) -> TypeResult<Type> {
+        let type_found_in_scopes = self
+            .scopes
+            .iter()
+            .find_map(|scope| scope.get(name).map(|type_| type_.clone()));
+
+        if let Some(type_) = type_found_in_scopes {
+            Ok(type_)
+        } else {
+            self.top_level_definitions
+                .get(name)
+                .map(|type_| type_.clone())
+                .ok_or(TypeError::VariableDoesNotExist {
+                    name: name.to_string(),
+                    location: location,
+                })
+        }
+    }
+
+    fn insert_variable_type(
+        &mut self,
+        name: String,
+        type_: Type,
+        location: Span,
+    ) -> TypeResult<()> {
+        let variable_exists = self.scopes.iter().any(|scope| scope.contains_key(&name));
+
+        if variable_exists {
+            Err(TypeError::VariableAlreadyExists { name, location })
+        } else {
+            self.scopes.last_mut().unwrap().insert(name, type_);
+            Ok(())
+        }
+    }
 }
 
 type TypeResult<T> = Result<T, TypeError>;
@@ -486,7 +645,7 @@ pub enum TypeError {
 #[cfg(test)]
 mod tests {
     use crate::{
-        ast::{self, Span},
+        ast::{self, Span, TypedFunction, TypedModule},
         expr::TypedExpr,
         lexer::{self, LexInfo},
         parser,
@@ -496,17 +655,14 @@ mod tests {
     use chumsky::Parser;
 
     fn parse_and_typecheck_expr(src: &str) -> TypedExpr {
-        // println!("Source: {src}");
+        // Lex the tokens and convert them into a stream
         let LexInfo { tokens, .. } = lexer::run(src).unwrap();
         let stream =
             chumsky::Stream::from_iter(ast::Span::create(tokens.len(), 1), tokens.into_iter());
 
-        // println!("{tokens:#?}");
         let untyped_expr = parser::expression_sequence_parser().parse(stream).unwrap();
-        // println!("Untyped Expression: {untyped_expr:#?}");
 
         let mut checker = TypeChecker::new("testing_typechecking".to_string());
-        // println!("Typed Expresion: {typed_expr:#?}")
         checker.check_expr(&untyped_expr).unwrap()
     }
 
@@ -602,5 +758,98 @@ mod tests {
             parse_and_typecheck_expr(src).get_type(),
             Type::float_type(Span::empty())
         )
+    }
+
+    pub fn parse_and_typecheck_function(src: &str) -> TypedFunction {
+        // Lex the tokens and convert them into a stream
+        let LexInfo { tokens, .. } = lexer::run(src).unwrap();
+        let stream =
+            chumsky::Stream::from_iter(ast::Span::create(tokens.len(), 1), tokens.into_iter());
+
+        let untyped_func = parser::function_parser().parse(stream).unwrap();
+
+        let mut checker = TypeChecker::new("testing_typechecking".to_string());
+        // println!("Typed Expresion: {typed_expr:#?}")
+        checker.check_function(&untyped_func).unwrap()
+    }
+
+    #[test]
+    fn can_typecheck_add_one_func() {
+        let src = r#"
+        fn add_one(n: Int) -> Int {
+            n + 1
+        }
+        "#;
+        let typed_func = parse_and_typecheck_function(src);
+        assert_eq!(
+            typed_func.argument_types(),
+            vec![Type::int_type(Span::empty())]
+        );
+
+        assert_eq!(typed_func.return_type, Type::int_type(Span::empty()))
+    }
+
+    #[test]
+    fn can_typecheck_fib_func() {
+        let src = r#"
+        fn fib(n: Int) -> Int {
+            if n < 2 {
+                1
+            } else {
+                fib(n-1) + fib(n-2)
+            }
+        }
+        "#;
+        let typed_func = parse_and_typecheck_function(src);
+        assert_eq!(
+            typed_func.argument_types(),
+            vec![Type::int_type(Span::empty())]
+        );
+
+        assert_eq!(typed_func.return_type, Type::int_type(Span::empty()))
+    }
+
+    #[test]
+    fn can_typecheck_factorial_func() {
+        let src = r#"
+        fn factorial(n: Int) -> Int {
+            if n == 1 {
+                1
+            } else {
+                n * factorial(n-1)
+            }
+        }
+        "#;
+        let typed_func = parse_and_typecheck_function(src);
+        assert_eq!(
+            typed_func.argument_types(),
+            vec![Type::int_type(Span::empty())]
+        );
+
+        assert_eq!(typed_func.return_type, Type::int_type(Span::empty()))
+    }
+
+    fn parse_and_typecheck_module(src: &str) -> TypedModule {
+        let (untyped_module, _module_extra) = parser::module_parser(src).unwrap();
+
+        let mut checker = TypeChecker::new("testing_typechecking".to_string());
+        checker.check_module(&untyped_module).unwrap()
+    }
+
+    #[test]
+    fn can_typecheck_fibonnacci_module() {
+        let src = r#"
+        module fibonnacci
+
+        fn fib(n: Int) -> Int {
+            if n < 2 {
+                1
+            } else {
+                fib(n-1) + fib(n-2)
+            }
+        }
+        "#;
+
+        parse_and_typecheck_module(&src);
     }
 }

@@ -1,11 +1,15 @@
 use chumsky::{
-    primitive::{choice, just},
+    combinator::To,
+    primitive::{choice, end, just},
     recursive::{recursive, Recursive},
     select, Parser,
 };
 
 use crate::{
-    ast::{self, Argument, ArgumentName, Span, UntypedCallArg, UntypedDefinition},
+    ast::{
+        self, Argument, ArgumentName, Module, Span, UntypedCallArg, UntypedDefinition,
+        UntypedModule,
+    },
     call::call_parser,
     expr::{self, UntypedExpr},
     extra::ModuleExtra,
@@ -26,9 +30,10 @@ fn int_parser() -> impl Parser<Token, UntypedExpr, Error = ParseError> {
         .then(select! { Token::Integer { value } => value })
         .map_with_span(|(number_has_minus, value), location| {
             let value = if number_has_minus {
-                format!("-{value}")
+                // TODO: Handle Errors
+                -value.parse::<i32>().unwrap()
             } else {
-                value
+                value.parse::<i32>().unwrap()
             };
 
             UntypedExpr::Integer { location, value }
@@ -38,7 +43,7 @@ fn int_parser() -> impl Parser<Token, UntypedExpr, Error = ParseError> {
 fn float_parser() -> impl Parser<Token, UntypedExpr, Error = ParseError> {
     select! { |location|
         Token::Float { value } => {
-            UntypedExpr::Float { location, value, }
+            UntypedExpr::Float { location, value: value.parse::<f32>().unwrap() , }
         }
     }
 }
@@ -442,7 +447,7 @@ pub fn parameter_parser() -> impl Parser<Token, ast::Argument, Error = ParseErro
     })
 }
 
-pub fn function_parser() -> impl Parser<Token, ast::UntypedDefinition, Error = ParseError> {
+pub fn function_parser() -> impl Parser<Token, ast::Function<UntypedExpr>, Error = ParseError> {
     utils::optional_flag(Token::Pub)
         .then_ignore(just(Token::Fn))
         .then(select! { Token::Name { name } => name })
@@ -462,8 +467,8 @@ pub fn function_parser() -> impl Parser<Token, ast::UntypedDefinition, Error = P
         .map_with_span(
             |((((is_public, name), (arguments, arguments_span)), return_annotation), body),
              span| {
-                ast::UntypedDefinition::Fn(ast::Function {
-                    location: ast::Span {
+                ast::Function {
+                    type_definition_span: ast::Span {
                         start: span.start,
                         end: return_annotation.get_location().end,
                     },
@@ -475,20 +480,24 @@ pub fn function_parser() -> impl Parser<Token, ast::UntypedDefinition, Error = P
                     doc: None,
                     return_type: return_annotation,
                     end_position: span.end - 1,
-                })
+                }
             },
         )
 }
 
 pub fn definition_parser() -> impl Parser<Token, UntypedDefinition, Error = ParseError> {
-    choice((function_parser(), function_parser()))
+    choice((function_parser().map(ast::UntypedDefinition::Fn),))
+}
+
+pub fn module_name_parser() -> impl Parser<Token, String, Error = ParseError> {
+    just(Token::Module).ignore_then(select! {Token::Name { name } => name})
 }
 
 /// Parses a src string into a module
 pub fn module_parser(
     src: &str,
     // kind
-) -> Result<(UntypedDefinition, ModuleExtra), Vec<ParseError>> {
+) -> Result<(UntypedModule, ModuleExtra), Vec<ParseError>> {
     let lexer::LexInfo {
         tokens,
         module_extra,
@@ -497,18 +506,43 @@ pub fn module_parser(
     let stream = chumsky::Stream::from_iter(ast::Span::create(tokens.len(), 1), tokens.into_iter());
 
     // let expr = expression_parser(expression_sequence_parser()).parse(stream);
-    let result = definition_parser().parse(stream);
-    match result {
-        Ok(definition) => Ok((definition, module_extra)),
-        Err(parse_errors) => Err(parse_errors),
-    }
+    let module = module_name_parser()
+        .then(definition_parser().repeated().then_ignore(end()))
+        .map(|(module_name, module_definitions)| Module {
+            name: module_name,
+            docs: Vec::new(),
+            type_info: (),
+            definitions: module_definitions,
+        })
+        .parse(stream)?;
+
+    Ok((module, module_extra))
 }
 
 #[cfg(test)]
 mod tests {
-    // use super::*;
-    //
-    // fn can_parse(src: &str) -> (UntypedExpr, ModuleExtra) {
-    //     module_parser(src).unwrap()
-    // }
+    use super::*;
+
+    fn can_parse_module(src: &str) -> (UntypedModule, ModuleExtra) {
+        module_parser(src).unwrap()
+    }
+
+    #[test]
+    fn can_parse_fibonnacci_module() {
+        let (mody, _extra) = can_parse_module(
+            r#"
+        module fibonnacci
+
+        pub fn fib(n: Int) -> Int {
+            if n < 2 {
+                1
+            } else {
+                fib(n-1) + fib(n-2)
+            }
+        }
+        "#,
+        );
+
+        // panic!("{mody:#?}")
+    }
 }

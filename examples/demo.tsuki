@@ -5,7 +5,7 @@ type Grid {
     Grid(cells: List(u8))
 }
 
-enum Result(value, reason) {
+type Result(value, reason) {
     Ok(value),
     Err(reason),
 }

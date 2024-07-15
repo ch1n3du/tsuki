@@ -9,22 +9,18 @@ use crate::{
 pub enum TypedExpr {
     Integer {
         location: Span,
-        type_: Type,
-        value: String,
+        value: i32,
     },
     Boolean {
         location: Span,
-        type_: Type,
         value: bool,
     },
     Float {
         location: Span,
-        type_: Type,
-        value: String,
+        value: f32,
     },
     String {
         location: Span,
-        type_: Type,
         value: String,
     },
     Identifier {
@@ -93,7 +89,7 @@ pub enum TypedExpr {
     Call {
         location: Span,
         type_: Type,
-        arguments: Vec<CallArg<UntypedExpr>>,
+        arguments: Vec<CallArg<TypedExpr>>,
         function: Box<Self>,
     },
 }
@@ -101,11 +97,12 @@ pub enum TypedExpr {
 impl TypedExpr {
     pub fn get_type(&self) -> Type {
         match self {
-            TypedExpr::Boolean { type_, .. }
-            | TypedExpr::Integer { type_, .. }
-            | TypedExpr::Float { type_, .. }
-            | TypedExpr::String { type_, .. }
-            | TypedExpr::Identifier { type_, .. }
+            TypedExpr::Boolean { location, .. } => Type::bool_type(*location),
+            TypedExpr::Integer { location, .. } => Type::int_type(*location),
+            TypedExpr::Float { location, .. } => Type::float_type(*location),
+            TypedExpr::String { location, .. } => Type::string_type(*location),
+
+            TypedExpr::Identifier { type_, .. }
             | TypedExpr::BinaryOp { type_, .. }
             | TypedExpr::If { type_, .. }
             | TypedExpr::FieldAccess { type_, .. }
@@ -161,7 +158,7 @@ impl TypedExpr {
 pub enum UntypedExpr {
     Integer {
         location: Span,
-        value: String,
+        value: i32,
     },
     Boolean {
         location: Span,
@@ -169,7 +166,7 @@ pub enum UntypedExpr {
     },
     Float {
         location: Span,
-        value: String,
+        value: f32,
     },
     String {
         location: Span,

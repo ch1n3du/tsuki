@@ -96,6 +96,7 @@ pub enum Token {
     Const,
     Pub,
     Use,
+    Module,
 
     // Extra
     Comment,

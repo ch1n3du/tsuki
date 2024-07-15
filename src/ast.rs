@@ -1,7 +1,27 @@
 use std::ops::Range;
 
-use crate::{expr::UntypedExpr, type_::Type};
+use crate::{
+    expr::{TypedExpr, UntypedExpr},
+    type_::Type,
+};
 
+pub type TypedModule = Module<(), TypedDefinition>;
+pub type UntypedModule = Module<(), UntypedDefinition>;
+
+// TODO: pub struct Module<TypeInfo, Definitions> {
+#[derive(Debug)]
+pub struct Module<TypeInfo, Definitions> {
+    pub name: String,
+    pub docs: Vec<String>,
+    // TODO: Implement collecting module type info
+    pub type_info: TypeInfo,
+    pub definitions: Vec<Definitions>,
+    // TODO: pub lines: LineNumbers
+}
+
+// TODO: pub struct TypeInfo {}
+
+pub type TypedDefinition = Definition<TypedExpr>;
 pub type UntypedDefinition = Definition<UntypedExpr>;
 
 #[derive(Debug)]
@@ -9,6 +29,21 @@ pub enum Definition<Expr> {
     Fn(Function<Expr>),
 }
 
+impl<Expr> Definition<Expr> {
+    pub fn get_name(&self) -> String {
+        match self {
+            Definition::Fn(func) => func.name.clone(),
+        }
+    }
+
+    pub fn get_type(&self) -> Type {
+        match self {
+            Definition::Fn(func) => func.get_type(),
+        }
+    }
+}
+
+pub type TypedFunction = Function<TypedExpr>;
 pub type UntypedFunction = Function<UntypedExpr>;
 
 #[derive(Debug)]
@@ -21,18 +56,36 @@ pub struct Function<Expr> {
     pub return_type: Type,
     pub doc: Option<String>,
     // Span of the function type definition
-    pub location: Span,
+    pub type_definition_span: Span,
     // Location of actual end of the function
     pub end_position: usize,
+}
+
+impl<Expr> Function<Expr> {
+    pub fn get_type(&self) -> Type {
+        Type::Function {
+            location: self.type_definition_span,
+            type_of_arguments: self.argument_types(),
+            return_type: Box::new(self.return_type.clone()),
+        }
+    }
+
+    pub fn argument_types(&self) -> Vec<Type> {
+        self.arguments
+            .iter()
+            .map(|argument| argument.get_type())
+            .to_owned()
+            .collect()
+    }
 }
 
 pub type UntypedCallArg = CallArg<UntypedExpr>;
 
 #[derive(Debug, Clone)]
-pub struct CallArg<A> {
+pub struct CallArg<Expr> {
     pub label: Option<String>,
     pub location: Span,
-    pub value: A,
+    pub value: Expr,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -50,6 +103,10 @@ impl Argument {
 
     pub fn put_doc(&mut self, new_doc: String) {
         self.doc = Some(new_doc);
+    }
+
+    pub fn get_type(&self) -> Type {
+        self.annotation.clone()
     }
 }
 
